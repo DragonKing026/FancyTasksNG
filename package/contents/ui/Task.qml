@@ -558,6 +558,10 @@ Item {
             recentPopup.close();
             return;
         }
+        if (!Plasmoid.configuration.showRecentPopup) {
+            showContextMenuDirect(args);
+            return;
+        }
         var hasItems = false;
         try { hasItems = recentPopup.tryLoad(args); } catch(e) {
             console.warn("FancyTasks: recentPopup.tryLoad:", e);

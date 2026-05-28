@@ -36,6 +36,7 @@ PlasmaCore.AppletPopup {
 
     property var  pendingArgs:         null
     property var  urlTitleCache:        ({})
+    property var  appFoldersCache:      ({})   // agent -> [{href, title}]
     property bool historyCacheLoaded:   false
 
     signal moreOptionsRequested()
@@ -360,12 +361,22 @@ PlasmaCore.AppletPopup {
         if (xhr.status !== 0 && xhr.status !== 200) return
         try {
             var entries = JSON.parse(xhr.responseText)
-            var cache   = {}
+            var urlCache = {}
+            var appCache = {}
             for (var i = 0; i < entries.length; i++) {
                 var e = entries[i]
-                if (e.url && e.title) cache[e.url] = e.title
+                if (!e.url) continue
+                if (e.app) {
+                    // Wpis file managera z activity DB
+                    if (!appCache[e.app]) appCache[e.app] = []
+                    appCache[e.app].push({ href: e.url, title: e.title || e.url })
+                } else if (e.title) {
+                    // Wpis historii przeglądarki
+                    urlCache[e.url] = e.title
+                }
             }
-            popup.urlTitleCache      = cache
+            popup.urlTitleCache   = urlCache
+            popup.appFoldersCache = appCache
             popup.historyCacheLoaded = true
         } catch(e) {}
     }
@@ -421,18 +432,100 @@ PlasmaCore.AppletPopup {
 
     function doLoadSync() {
         if (!popup.appId) return
-        // Wczytaj cache z pliku synchronicznie jeśli DataSource jeszcze nie gotowy
-        if (!popup.historyCacheLoaded) loadHistoryCacheFile()
+        // Zawsze odczytaj cache z dysku — brak cachowania w pamięci
+        loadHistoryCacheFile()
+
+        var isFileMgr = popup.fileManagerIds.indexOf(popup.appId.toLowerCase()) >= 0
+
+        if (isFileMgr) {
+            // Użyj danych z KDE Activity DB (z cache) — normalizer appId
+            var activityData = popup.appFoldersCache[popup.appId]
+                            || popup.appFoldersCache["org.kde." + popup.appId]
+                            || []
+
+            if (activityData.length > 0) {
+                // Wypełnij model z activity DB
+                recentModel.clear()
+                var pinnedSet0 = {}
+                for (var p0 = 0; p0 < pinnedModel.count; p0++)
+                    pinnedSet0[pinnedModel.get(p0).href] = true
+                var cnt0 = 0
+                for (var f0 = 0; f0 < activityData.length && cnt0 < popup.maxRecent; f0++) {
+                    if (!pinnedSet0[activityData[f0].href]) {
+                        recentModel.append({ href: activityData[f0].href,
+                                             title: activityData[f0].title,
+                                             pinned: false })
+                        cnt0++
+                    }
+                }
+                // Re-triggeruj skrypt w tle — kolejne otwarcie pokaże świeże dane
+                refreshHistoryInBackground()
+                return
+            }
+
+            // Fallback: plik sesji Dolphina (gdy cache jeszcze nie gotowy)
+            loadDolphinSession()
+            refreshHistoryInBackground()
+            return
+        }
+
+        // Przeglądarki i inne: XBEL
         var rawPath = StandardPaths.writableLocation(StandardPaths.GenericDataLocation)
                           .toString().replace(/^file:\/\//, "")
         var xbelUrl = "file://" + rawPath + "/recently-used.xbel"
-
         var xhr = new XMLHttpRequest()
         xhr.open("GET", xbelUrl, false)
-        try { xhr.send() } catch (e) { return }
+        try { xhr.send() } catch (e) {}
+        if (xhr.status === 0 || xhr.status === 200) parseXBEL(xhr.responseText)
+    }
+
+    function refreshHistoryInBackground() {
+        // Odśwież cache asynchronicznie — dane będą gotowe na następne otwarcie
+        historySource.disconnectSource("python3 " + Qt.resolvedUrl("../code/get-history.py")
+                          .toString().replace(/^file:\/\//, ""))
+        loadBrowserHistory()
+    }
+
+    // Czyta aktualnie otwarte zakładki Dolphina z pliku sesji KDE (plik binarny Qt)
+    function loadDolphinSession() {
+        var home = StandardPaths.writableLocation(StandardPaths.HomeLocation)
+                       .toString().replace(/^file:\/\//, "")
+        var sessionFile = home + "/.config/session/dolphin_dolphin_dolphin"
+        var xhr = new XMLHttpRequest()
+        xhr.open("GET", "file://" + sessionFile, false)
+        xhr.overrideMimeType("text/plain; charset=x-user-defined")
+        try { xhr.send() } catch(e) { return }
         if (xhr.status !== 0 && xhr.status !== 200) return
 
-        parseXBEL(xhr.responseText)
+        var text = xhr.responseText
+        var seen = {}
+        var sessionFolders = []
+
+        // URLs są zakodowane w binarnym formacie Qt — wyciągamy je regexem
+        var re = /file:\/\/\/[^\x00-\x08\x0e-\x1f\s<>"\\]+/g
+        var match
+        while ((match = re.exec(text)) !== null) {
+            var url = match[0]
+            var decoded  = decodeURIComponent(url.substring(7))
+            var basename = decoded.substring(decoded.lastIndexOf("/") + 1)
+            var dotIdx   = basename.lastIndexOf(".")
+            if (dotIdx > 0) continue   // ma rozszerzenie → plik, nie folder
+            if (seen[url]) continue
+            seen[url] = true
+            sessionFolders.push({ href: url, title: basename || decoded, pinned: false })
+        }
+
+        // Wstaw na górę recentModel (zakładki są najbardziej aktualne)
+        recentModel.clear()
+        var pinnedSet = {}
+        for (var j = 0; j < pinnedModel.count; j++) pinnedSet[pinnedModel.get(j).href] = true
+        var added = 0
+        for (var k = 0; k < sessionFolders.length && added < popup.maxRecent; k++) {
+            if (!pinnedSet[sessionFolders[k].href]) {
+                recentModel.append(sessionFolders[k])
+                added++
+            }
+        }
     }
 
     function parseXBEL(text) {
@@ -502,11 +595,19 @@ PlasmaCore.AppletPopup {
             pinnedSet[pinnedModel.get(j).href] = true
         }
 
-        recentModel.clear()
-        var count = 0
+        var isFileMgrXbel = popup.fileManagerIds.indexOf(popup.appId.toLowerCase()) >= 0
+        // Dla file managerów sesja Dolphina już wypełniła recentModel — nie czyść
+        if (!isFileMgrXbel) recentModel.clear()
+
+        // Zbierz co już jest w modelu (żeby nie duplikować)
+        var existingInModel = {}
+        for (var e = 0; e < recentModel.count; e++) existingInModel[recentModel.get(e).href] = true
+
+        var count = recentModel.count
         for (var k = 0; k < items.length && count < popup.maxRecent; k++) {
-            if (!pinnedSet[items[k].href]) {
+            if (!pinnedSet[items[k].href] && !existingInModel[items[k].href]) {
                 recentModel.append({ href: items[k].href, title: items[k].title, pinned: false })
+                existingInModel[items[k].href] = true
                 count++
             }
         }

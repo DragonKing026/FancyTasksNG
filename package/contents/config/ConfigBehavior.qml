@@ -177,7 +177,6 @@ ConfigPage {
                     onToggled: behaviorPage.cfg_wheelShiftSystemVolumeEnabled = checked
                 }
             }
-
             // Галочка Ctrl
             RowLayout {
                 Item { implicitWidth: Kirigami.Units.gridUnit }
@@ -398,6 +397,15 @@ ConfigPage {
                     }
                 }
                 ButtonGroup.group: reverseModeRadioButtonGroup
+            }
+
+            Item { height: Kirigami.Units.largeSpacing }
+
+            CheckBox {
+                id: showRecentPopupCheck
+                text: Wrappers.i18n("Show recent items popup on right-click")
+                checked: behaviorPage.cfg_showRecentPopup
+                onToggled: behaviorPage.cfg_showRecentPopup = checked
             }
             } // FormLayout
         } // ConfigScrollView

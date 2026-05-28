@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-# get-history.py  —  odczytuje historię przeglądarek i wypisuje JSON: [{"url":..., "title":...}]
-# Kopiuje plik DB do /tmp przed odczytem (unika blokady zajętej przeglądarki).
+# get-history.py  —  odczytuje historię przeglądarek + KDE Activity Manager,
+# wypisuje JSON: [{"url":..., "title":...}] dla przeglądarek
+#                [{"url":..., "title":..., "app":...}] dla file managerów
 
 import sqlite3, shutil, os, json, glob, sys
 
-results = {}   # url -> title (first hit wins)
+results = {}          # url -> title (przeglądarki)
+app_folders = {}      # agent -> [{"url":..., "title":...}]
 
 def query_chromium(dbpath):
     if not os.path.exists(dbpath):
@@ -16,7 +18,7 @@ def query_chromium(dbpath):
         cur = conn.execute(
             "SELECT url, title FROM urls "
             "WHERE title IS NOT NULL AND title != '' "
-            "ORDER BY last_visit_time DESC LIMIT 2000"
+            "ORDER BY last_visit_time DESC LIMIT 10000"
         )
         for url, title in cur:
             if url and title and url not in results:
@@ -40,7 +42,7 @@ def query_firefox(dbpath):
         cur = conn.execute(
             "SELECT url, title FROM moz_places "
             "WHERE title IS NOT NULL AND title != '' "
-            "ORDER BY last_visit_date DESC LIMIT 2000"
+            "ORDER BY last_visit_date DESC LIMIT 10000"
         )
         for url, title in cur:
             if url and title and url not in results:
@@ -107,7 +109,58 @@ for pattern in firefox_patterns:
     for f in glob.glob(pattern):
         query_firefox(f)
 
+# --- KDE Activity Manager (historia nawigacji file managerów) ---
+def query_kde_activity():
+    db = os.path.expanduser('~/.local/share/kactivitymanagerd/resources/database')
+    if not os.path.exists(db):
+        return
+    tmp = '/tmp/_fancytasks_kactivity.db'
+    agents = [
+        'org.kde.dolphin', 'dolphin',
+        'org.kde.krusader', 'krusader',
+        'org.gnome.nautilus', 'nautilus',
+        'pcmanfm', 'nemo', 'thunar', 'doublecmd', 'spacefm',
+    ]
+    placeholders = ','.join('?' * len(agents))
+    try:
+        shutil.copy2(db, tmp)
+        conn = sqlite3.connect(tmp)
+        cur = conn.execute(
+            f"SELECT initiatingAgent, targettedResource, lastUpdate "
+            f"FROM ResourceScoreCache "
+            f"WHERE initiatingAgent IN ({placeholders}) "
+            f"ORDER BY lastUpdate DESC",
+            agents
+        )
+        for agent, resource, _ in cur:
+            if not resource:
+                continue
+            # Konwertuj ścieżkę absolutną na URL file://
+            if resource.startswith('/'):
+                url = 'file://' + resource
+            else:
+                url = resource   # trash:/, remote:/, itp.
+            # Tytuł = nazwa ostatniego segmentu ścieżki
+            basename = resource.rstrip('/').rsplit('/', 1)[-1] if '/' in resource else resource
+            if agent not in app_folders:
+                app_folders[agent] = []
+            app_folders[agent].append({"url": url, "title": basename or url})
+        conn.close()
+    except Exception:
+        pass
+    finally:
+        try:
+            os.unlink(tmp)
+        except Exception:
+            pass
+
+query_kde_activity()
+
 output = [{"url": k, "title": v} for k, v in results.items()]
+# Dołącz wpisy file managerów z activity DB (z polem "app")
+for agent, folders in app_folders.items():
+    for f in folders:
+        output.append({"url": f["url"], "title": f["title"], "app": agent})
 
 # Zapisz do pliku cache (czytanego synchronicznie przez QML przy starcie)
 cache_path = os.path.expanduser('~/.cache/fancytasks-history.json')
