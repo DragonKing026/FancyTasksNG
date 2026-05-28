@@ -21,6 +21,57 @@ FILE_MANAGER_IDS = {
     'pcmanfm', 'nemo', 'thunar', 'doublecmd', 'spacefm',
 }
 
+def _read_xdg_user_dirs():
+    """Zwraca słownik ścieżka→nazwa_ikony dla folderów XDG użytkownika."""
+    icon_map = {
+        'XDG_DOWNLOAD_DIR':   'folder-download',
+        'XDG_PICTURES_DIR':   'folder-pictures',
+        'XDG_MUSIC_DIR':      'folder-music',
+        'XDG_VIDEOS_DIR':     'folder-videos',
+        'XDG_DOCUMENTS_DIR':  'folder-documents',
+        'XDG_DESKTOP_DIR':    'user-desktop',
+        'XDG_TEMPLATES_DIR':  'folder-templates',
+        'XDG_PUBLICSHARE_DIR':'folder-publicshare',
+    }
+    result = {home: 'user-home'}
+    xdg_file = os.path.join(home, '.config/user-dirs.dirs')
+    try:
+        with open(xdg_file) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#') or '=' not in line:
+                    continue
+                key, val = line.split('=', 1)
+                icon = icon_map.get(key.strip())
+                if icon:
+                    path = val.strip().strip('"').replace('$HOME', home)
+                    result[path] = icon
+    except Exception:
+        pass
+    return result
+
+_XDG_ICONS = None
+
+def get_folder_icon(path):
+    """Zwraca nazwę ikony KDE dla podanego katalogu."""
+    global _XDG_ICONS
+    if _XDG_ICONS is None:
+        _XDG_ICONS = _read_xdg_user_dirs()
+    # Najpierw: niestandardowa ikona z pliku .directory
+    dir_file = os.path.join(path, '.directory')
+    if os.path.isfile(dir_file):
+        try:
+            import configparser
+            cp = configparser.ConfigParser()
+            cp.read(dir_file, encoding='utf-8')
+            icon = cp.get('Desktop Entry', 'Icon', fallback=None)
+            if icon:
+                return icon
+        except Exception:
+            pass
+    # Następnie: mapa folderów XDG
+    return _XDG_ICONS.get(path, 'folder')
+
 def mode_app(agent, limit):
     a = agent.lower()
     short = a.split('.')[-1]
@@ -65,8 +116,9 @@ def query_filemanager(agent, limit):
         if any(url.startswith(s) for s in SKIP_SCHEMES): continue
         if url in seen: continue
         seen.add(url)
-        basename = resource.rstrip('/').rsplit('/', 1)[-1] if '/' in resource else resource
-        output.append({"url": url, "title": basename or url})
+        path = resource.rstrip('/')
+        basename = path.rsplit('/', 1)[-1] if '/' in path else path
+        output.append({"url": url, "title": basename or url, "icon": get_folder_icon(path)})
         if len(output) >= limit:
             break
     print(json.dumps(output, ensure_ascii=False))

@@ -74,7 +74,8 @@ PlasmaCore.AppletPopup {
                         recentModel.append({
                             href:   e.url,
                             title:  e.title || popup.titleFor(e.url),
-                            pinned: false
+                            pinned: false,
+                            icon:   e.icon || ""
                         })
                         count++
                     }
@@ -100,6 +101,7 @@ PlasmaCore.AppletPopup {
         required property string href
         required property string title
         required property bool   pinned
+        required property string icon
 
         implicitHeight: rowLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
         implicitWidth:  rowLayout.implicitWidth
@@ -152,7 +154,9 @@ PlasmaCore.AppletPopup {
                     source: {
                         if (row.href.startsWith("http://") || row.href.startsWith("https://"))
                             return "internet-web-browser"
-                        return "document-open"
+                        if (row.icon && row.icon !== "")
+                            return row.icon
+                        return "folder"
                     }
                 }
             }
@@ -385,7 +389,7 @@ PlasmaCore.AppletPopup {
             var sep   = rest.indexOf("|")
             var href  = sep >= 0 ? rest.substring(0, sep)  : rest
             var title = sep >= 0 ? rest.substring(sep + 1) : titleFor(href)
-            if (href) pinnedModel.append({ href: href, title: title || titleFor(href), pinned: true })
+            if (href) pinnedModel.append({ href: href, title: title || titleFor(href), pinned: true, icon: "" })
         }
     }
 
