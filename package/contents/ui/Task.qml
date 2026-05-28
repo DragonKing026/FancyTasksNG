@@ -562,15 +562,8 @@ Item {
             showContextMenuDirect(args);
             return;
         }
-        var hasItems = false;
-        try { hasItems = recentPopup.tryLoad(args); } catch(e) {
-            console.warn("FancyTasks: recentPopup.tryLoad:", e);
-        }
-        if (hasItems) {
-            recentPopup.open();
-            return;
-        }
-        showContextMenuDirect(args);
+        // beginLoad odpala async zapytanie i sam otwiera popup (lub emituje moreOptionsRequested)
+        recentPopup.beginLoad(args);
     }
 
     function showContextMenuDirect(args: var): void {

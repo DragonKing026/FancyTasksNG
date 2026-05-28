@@ -14,153 +14,41 @@ home = os.path.expanduser('~')
 
 # ── Tryb 2: file manager — tylko 10 ostatnich folderów ────────────────────────
 
-FILE_MANAGER_IDS = {
-    'org.kde.dolphin', 'dolphin',
-    'org.kde.krusader', 'krusader',
-    'org.gnome.nautilus', 'nautilus',
-    'pcmanfm', 'nemo', 'thunar', 'doublecmd', 'spacefm',
-}
-
 def mode_app(agent, limit):
-    a = agent.lower()
-    short = a.split('.')[-1]
-    if a in FILE_MANAGER_IDS or short in FILE_MANAGER_IDS:
-        query_filemanager(agent, limit)
-    else:
-        query_browser(agent, limit)
-
-def query_filemanager(agent, limit):
     db = os.path.join(home, '.local/share/kactivitymanagerd/resources/database')
     if not os.path.exists(db):
-        print('[]'); return
+        print('[]')
+        return
     tmp = '/tmp/_fancytasks_kactivity.db'
-    # Kopiuj również WAL i SHM — bez nich SQLite nie widzi niezapisanych zmian
-    for ext in ('', '-wal', '-shm'):
-        src = db + ext
-        if os.path.exists(src):
-            shutil.copy2(src, tmp + ext)
     try:
+        shutil.copy2(db, tmp)
         conn = sqlite3.connect(tmp)
+        # dopasuj pełną nazwę agenta i skrót (org.kde.dolphin → dolphin)
         short = agent.split('.')[-1]
-        # ResourceEvent — świeże dane z WAL, ORDER BY end DESC żeby najnowsze pierwsze
-        rows = [r[0] for r in conn.execute(
-            "SELECT targettedResource FROM ResourceEvent "
-            "WHERE (initiatingAgent = ? OR initiatingAgent = ?) "
-            "AND targettedResource LIKE 'file://%' OR targettedResource LIKE '/%' "
-            "ORDER BY end DESC LIMIT ?",
-            (agent, short, limit * 5)
-        ) if r[0]]
+        cur = conn.execute(
+            "SELECT targettedResource FROM ResourceScoreCache "
+            "WHERE initiatingAgent = ? OR initiatingAgent = ? "
+            "ORDER BY lastUpdate DESC LIMIT ?",
+            (agent, short, limit)
+        )
+        rows = [r[0] for r in cur if r[0]]
         conn.close()
     except Exception:
         rows = []
     finally:
-        for ext in ('', '-wal', '-shm'):
-            try: os.unlink(tmp + ext)
-            except Exception: pass
+        try: os.unlink(tmp)
+        except Exception: pass
 
-    SKIP_SCHEMES = ('filenamesearch:', 'zip://', 'tar://', 'search:', 'appstream:', 'apt:', 'snap:')
-    output, seen = [], set()
+    output = []
+    seen = set()
     for resource in rows:
         url = ('file://' + resource) if resource.startswith('/') else resource
-        if any(url.startswith(s) for s in SKIP_SCHEMES): continue
-        if url in seen: continue
+        if url in seen:
+            continue
         seen.add(url)
         basename = resource.rstrip('/').rsplit('/', 1)[-1] if '/' in resource else resource
         output.append({"url": url, "title": basename or url})
-        if len(output) >= limit:
-            break
     print(json.dumps(output, ensure_ascii=False))
-
-def query_browser(agent, limit):
-    a = agent.lower()
-    chromium_paths, firefox_patterns = [], []
-    if 'brave' in a:
-        chromium_paths = [
-            f'{home}/.config/BraveSoftware/Brave-Browser/Default/History',
-            f'{home}/.var/app/com.brave.Browser/config/BraveSoftware/Brave-Browser/Default/History',
-        ]
-    elif 'chrome' in a:
-        chromium_paths = [
-            f'{home}/.config/google-chrome/Default/History',
-            f'{home}/.var/app/com.google.Chrome/config/google-chrome/Default/History',
-        ]
-    elif 'chromium' in a:
-        chromium_paths = [
-            f'{home}/.config/chromium/Default/History',
-            f'{home}/.var/app/org.chromium.Chromium/config/chromium/Default/History',
-        ]
-    elif 'opera-gx' in a or 'operagx' in a:
-        chromium_paths = [f'{home}/.config/opera-gx/Default/History']
-    elif 'opera' in a:
-        chromium_paths = [
-            f'{home}/.config/opera/Default/History',
-            f'{home}/.var/app/com.opera.Opera/config/opera/Default/History',
-        ]
-    elif 'edge' in a or 'microsoft' in a:
-        chromium_paths = [
-            f'{home}/.config/microsoft-edge/Default/History',
-            f'{home}/.var/app/com.microsoft.Edge/config/microsoft-edge/Default/History',
-        ]
-    elif 'vivaldi' in a:
-        chromium_paths = [f'{home}/.config/vivaldi/Default/History']
-    elif 'thorium' in a:
-        chromium_paths = [f'{home}/.config/thorium/Default/History']
-    elif 'firefox' in a or 'mozilla' in a:
-        firefox_patterns = [
-            f'{home}/.mozilla/firefox/*/places.sqlite',
-            f'{home}/.var/app/org.mozilla.firefox/.mozilla/firefox/*/places.sqlite',
-            f'{home}/.var/app/org.mozilla.firefox/data/.mozilla/firefox/*/places.sqlite',
-        ]
-    elif 'librewolf' in a:
-        firefox_patterns = [
-            f'{home}/.var/app/io.gitlab.librewolf-community/.librewolf/*/places.sqlite',
-            f'{home}/.librewolf/*/places.sqlite',
-        ]
-    elif 'waterfox' in a:
-        firefox_patterns = [f'{home}/.waterfox/*/places.sqlite']
-    else:
-        print('[]'); return
-
-    rows = []
-    for path in chromium_paths:
-        if not os.path.exists(path): continue
-        tmp = '/tmp/_fancytasks_browser.db'
-        try:
-            shutil.copy2(path, tmp)
-            conn = sqlite3.connect(tmp)
-            rows = [{"url": u, "title": t} for u, t in conn.execute(
-                "SELECT url, title FROM urls "
-                "WHERE title IS NOT NULL AND title != '' "
-                "ORDER BY last_visit_time DESC LIMIT ?", (limit,)
-            ) if u and t]
-            conn.close()
-        except Exception: pass
-        finally:
-            try: os.unlink(tmp)
-            except: pass
-        if rows: break
-
-    for pattern in firefox_patterns:
-        for f in glob.glob(pattern):
-            if not os.path.exists(f): continue
-            tmp = '/tmp/_fancytasks_firefox.db'
-            try:
-                shutil.copy2(f, tmp)
-                conn = sqlite3.connect(tmp)
-                rows = [{"url": u, "title": t} for u, t in conn.execute(
-                    "SELECT url, title FROM moz_places "
-                    "WHERE title IS NOT NULL AND title != '' "
-                    "ORDER BY last_visit_date DESC LIMIT ?", (limit,)
-                ) if u and t]
-                conn.close()
-            except Exception: pass
-            finally:
-                try: os.unlink(tmp)
-                except: pass
-            if rows: break
-        if rows: break
-
-    print(json.dumps(rows[:limit], ensure_ascii=False))
 
 
 # ── Tryb 1: historia przeglądarek ─────────────────────────────────────────────

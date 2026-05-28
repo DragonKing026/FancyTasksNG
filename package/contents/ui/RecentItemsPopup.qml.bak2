@@ -34,8 +34,10 @@ PlasmaCore.AppletPopup {
     required property string appId
     required property Item   taskItem
 
-    property var  pendingArgs: null
-    property bool pendingOpen:  false   // czekamy na async — po wyniku otwieramy popup
+    property var  pendingArgs:         null
+    property var  urlTitleCache:        ({})
+    property var  appFoldersCache:      ({})   // agent -> [{href, title}]
+    property bool historyCacheLoaded:   false
 
     signal moreOptionsRequested()
 
@@ -53,7 +55,7 @@ PlasmaCore.AppletPopup {
     readonly property int maxRecent: 5
     readonly property var fileManagerIds: ["org.kde.dolphin", "org.kde.krusader", "org.gnome.nautilus", "pcmanfm", "nemo", "thunar", "doublecmd"]
 
-    // Async: python3 get-history.py --app <appId> --limit N
+    // --- Browser history (async, preloaded on startup) ---
     Plasma5Support.DataSource {
         id: historySource
         engine: "executable"
@@ -61,38 +63,44 @@ PlasmaCore.AppletPopup {
         onNewData: function(sourceName, data) {
             var stdout = (data && data["stdout"]) || ""
             disconnectSource(sourceName)
-            recentModel.clear()
+            if (!stdout.trim()) return
             try {
                 var entries = JSON.parse(stdout)
-                var pinnedSet = {}
-                for (var p = 0; p < pinnedModel.count; p++)
-                    pinnedSet[pinnedModel.get(p).href] = true
-                var count = 0
-                for (var i = 0; i < entries.length && count < popup.maxRecent; i++) {
-                    var e = entries[i]
-                    if (e.url && !pinnedSet[e.url]) {
-                        recentModel.append({
-                            href:   e.url,
-                            title:  e.title || popup.titleFor(e.url),
-                            pinned: false
-                        })
-                        count++
+                // Rozróżnij: --app (szybki tryb file managera) vs. pełna historia przeglądarek
+                var appMatch = /--app\s+(\S+)/.exec(sourceName)
+                if (appMatch) {
+                    // Wynik dla konkretnej aplikacji — aktualizuj appFoldersCache
+                    var agentId = appMatch[1]
+                    var appCache = Object.assign({}, popup.appFoldersCache)
+                    appCache[agentId] = entries.map(function(e) {
+                        return { href: e.url, title: e.title || e.url }
+                    })
+                    popup.appFoldersCache = appCache
+                    if (popup.visible) {
+                        popup.doRefreshPinned()
+                        popup.doLoadSync()
+                    }
+                } else {
+                    // Wynik historii przeglądarek — aktualizuj urlTitleCache
+                    var urlCache = {}
+                    for (var i = 0; i < entries.length; i++) {
+                        var e = entries[i]
+                        if (e.url && e.title) urlCache[e.url] = e.title
+                    }
+                    popup.urlTitleCache = urlCache
+                    popup.historyCacheLoaded = true
+                    if (popup.visible) {
+                        popup.doRefreshPinned()
+                        popup.doLoadSync()
                     }
                 }
             } catch(err) {
                 console.warn("FancyTasks: get-history parse error:", err)
             }
-            if (popup.pendingOpen) {
-                popup.pendingOpen = false
-                if (pinnedModel.count > 0 || recentModel.count > 0) {
-                    popup.visible = true
-                } else {
-                    // Brak wyników — otwórz standardowe menu KDE
-                    popup.moreOptionsRequested()
-                }
-            }
         }
     }
+
+    Component.onCompleted: popup.loadBrowserHistory()
 
     component ItemRow: Item {
         id: row
@@ -323,33 +331,11 @@ PlasmaCore.AppletPopup {
     function open()  { popup.visible = true  }
     function close() { popup.visible = false }
 
-    // Wejście: wywoływane przez Task.qml przy prawym kliknięciu
-    function beginLoad(contextMenuArgs) {
-        if (!popup.appId) return
-        pendingArgs = contextMenuArgs
-        recentModel.clear()
-        doRefreshPinned()
-        if (pinnedModel.count > 0) {
-            // Pokaż popup od razu z ulubionymi; ostatnie wczytają się async
-            popup.visible = true
-        } else {
-            // Czekaj na wynik async — wtedy dopiero otwórz lub przejdź do std menu
-            popup.pendingOpen = true
-        }
-        loadAppHistoryAsync()
-    }
-
-    // Kompatybilność wsteczna — tryLoad nie jest już używane przez Task.qml
     function tryLoad(contextMenuArgs) {
-        beginLoad(contextMenuArgs)
-        return false
-    }
-
-    function loadAppHistoryAsync() {
-        var scriptPath = Qt.resolvedUrl("../code/get-history.py").toString().replace(/^file:\/\//, "")
-        historySource.connectSource(
-            "python3 " + scriptPath + " --app " + popup.appId + " --limit " + (popup.maxRecent + 5)
-        )
+        pendingArgs = contextMenuArgs
+        doRefreshPinned()
+        doLoadSync()
+        return pinnedModel.count > 0 || recentModel.count > 0
     }
 
     function faviconFor(href) {
@@ -367,12 +353,34 @@ PlasmaCore.AppletPopup {
 
     function titleFor(href) {
         if (!href) return ""
+        // 1. Sprawdź cache historii przeglądarki (prawdziwy tytuł strony)
+        if (popup.urlTitleCache && popup.urlTitleCache[href])
+            return popup.urlTitleCache[href]
+        // 2. Plik — pokaż nazwę pliku
         if (href.startsWith("file://")) {
             var path      = decodeURIComponent(href.substring(7))
             var lastSlash = path.lastIndexOf("/")
             return lastSlash >= 0 ? path.substring(lastSlash + 1) : path
         }
+        // 3. Dla http/https bez tytułu w cache — pokaż pełny URL (bez domeny)
         return href
+    }
+
+    function loadBrowserHistory() {
+        var scriptUrl  = Qt.resolvedUrl("../code/get-history.py").toString()
+        // DataSource executable engine nie używa shella — nie wolno cytować ścieżki ani używać 2>/dev/null
+        var scriptPath = scriptUrl.replace(/^file:\/\//, "")
+        historySource.connectSource("python3 " + scriptPath)
+    }
+
+    function matchesApp(appName) {
+        if (!popup.appId || !appName) return false
+        var a = appName.toLowerCase().replace(/_/g, ".")
+        var b = popup.appId.toLowerCase()
+        if (a === b) return true
+        if (a.endsWith("." + b)) return true
+        if (b.endsWith("." + a)) return true
+        return a.split(".").pop() === b.split(".").pop()
     }
 
     function doRefreshPinned() {
@@ -383,8 +391,8 @@ PlasmaCore.AppletPopup {
             if (!list[i].startsWith(prefix)) continue
             var rest  = list[i].substring(prefix.length)
             var sep   = rest.indexOf("|")
-            var href  = sep >= 0 ? rest.substring(0, sep)  : rest
-            var title = sep >= 0 ? rest.substring(sep + 1) : titleFor(href)
+            var href  = sep >= 0 ? rest.substring(0, sep)      : rest
+            var title = sep >= 0 ? rest.substring(sep + 1)     : titleFor(href)
             if (href) pinnedModel.append({ href: href, title: title || titleFor(href), pinned: true })
         }
     }
@@ -395,11 +403,197 @@ PlasmaCore.AppletPopup {
         var newList = []
         var found   = false
         for (var i = 0; i < current.length; i++) {
-            if (current[i] === key) { found = true } else { newList.push(current[i]) }
+            if (current[i] === key) {
+                found = true
+            } else {
+                newList.push(current[i])
+            }
         }
         if (!found) newList.push(key)
         Plasmoid.configuration.pinnedRecentItems = newList
         doRefreshPinned()
-        loadAppHistoryAsync()
+        doLoadSync()
+    }
+
+    function doLoadSync() {
+        if (!popup.appId) return
+        // NIE czytamy już całego cache JSON — urlTitleCache jest w pamięci od startu
+
+        var isFileMgr = popup.fileManagerIds.indexOf(popup.appId.toLowerCase()) >= 0
+
+        if (isFileMgr) {
+            // Użyj zapamiętanych wyników z poprzedniego asynchronicznego zapytania
+            var activityData = popup.appFoldersCache[popup.appId]
+                            || popup.appFoldersCache["org.kde." + popup.appId]
+                            || []
+
+            recentModel.clear()
+            if (activityData.length > 0) {
+                var pinnedSet0 = {}
+                for (var p0 = 0; p0 < pinnedModel.count; p0++)
+                    pinnedSet0[pinnedModel.get(p0).href] = true
+                var cnt0 = 0
+                for (var f0 = 0; f0 < activityData.length && cnt0 < popup.maxRecent; f0++) {
+                    if (!pinnedSet0[activityData[f0].href]) {
+                        recentModel.append({ href: activityData[f0].href,
+                                             title: activityData[f0].title,
+                                             pinned: false })
+                        cnt0++
+                    }
+                }
+            } else {
+                // Pierwsze otwarcie — fallback na plik sesji Dolphina
+                loadDolphinSession()
+            }
+            // Zawsze odśwież w tle (szybkie zapytanie — tylko 10 wierszy)
+            refreshFolderHistoryAsync(popup.appId)
+            return
+        }
+
+        // Przeglądarki: tylko XBEL (kilka KB) — tytuły z in-memory urlTitleCache
+        var rawPath = StandardPaths.writableLocation(StandardPaths.GenericDataLocation)
+                          .toString().replace(/^file:\/\//, "")
+        var xbelUrl = "file://" + rawPath + "/recently-used.xbel"
+        var xhr = new XMLHttpRequest()
+        xhr.open("GET", xbelUrl, false)
+        try { xhr.send() } catch (e) {}
+        if (xhr.status === 0 || xhr.status === 200) parseXBEL(xhr.responseText)
+    }
+
+    function refreshFolderHistoryAsync(agentId) {
+        var scriptPath = Qt.resolvedUrl("../code/get-history.py").toString().replace(/^file:\/\//, "")
+        historySource.connectSource("python3 " + scriptPath + " --app " + agentId + " --limit 20")
+    }
+
+    function refreshHistoryInBackground() {
+        // Odśwież historię przeglądarek asynchronicznie
+        loadBrowserHistory()
+    }
+
+    // Czyta aktualnie otwarte zakładki Dolphina z pliku sesji KDE (plik binarny Qt)
+    function loadDolphinSession() {
+        var home = StandardPaths.writableLocation(StandardPaths.HomeLocation)
+                       .toString().replace(/^file:\/\//, "")
+        var sessionFile = home + "/.config/session/dolphin_dolphin_dolphin"
+        var xhr = new XMLHttpRequest()
+        xhr.open("GET", "file://" + sessionFile, false)
+        xhr.overrideMimeType("text/plain; charset=x-user-defined")
+        try { xhr.send() } catch(e) { return }
+        if (xhr.status !== 0 && xhr.status !== 200) return
+
+        var text = xhr.responseText
+        var seen = {}
+        var sessionFolders = []
+
+        // URLs są zakodowane w binarnym formacie Qt — wyciągamy je regexem
+        var re = /file:\/\/\/[^\x00-\x08\x0e-\x1f\s<>"\\]+/g
+        var match
+        while ((match = re.exec(text)) !== null) {
+            var url = match[0]
+            var decoded  = decodeURIComponent(url.substring(7))
+            var basename = decoded.substring(decoded.lastIndexOf("/") + 1)
+            var dotIdx   = basename.lastIndexOf(".")
+            if (dotIdx > 0) continue   // ma rozszerzenie → plik, nie folder
+            if (seen[url]) continue
+            seen[url] = true
+            sessionFolders.push({ href: url, title: basename || decoded, pinned: false })
+        }
+
+        // Wstaw na górę recentModel (zakładki są najbardziej aktualne)
+        recentModel.clear()
+        var pinnedSet = {}
+        for (var j = 0; j < pinnedModel.count; j++) pinnedSet[pinnedModel.get(j).href] = true
+        var added = 0
+        for (var k = 0; k < sessionFolders.length && added < popup.maxRecent; k++) {
+            if (!pinnedSet[sessionFolders[k].href]) {
+                recentModel.append(sessionFolders[k])
+                added++
+            }
+        }
+    }
+
+    function parseXBEL(text) {
+        if (!text) return
+        var items = []
+
+        var parts = text.split("<bookmark ")
+        for (var i = 1; i < parts.length; i++) {
+            var section  = parts[i]
+            var closeIdx = section.indexOf("</bookmark>")
+            if (closeIdx >= 0) section = section.substring(0, closeIdx)
+
+            var hrefM = /href="([^"]*)"/.exec(section)
+            if (!hrefM) continue
+            var href = hrefM[1]
+                .replace(/&amp;/g,  "&")
+                .replace(/&lt;/g,   "<")
+                .replace(/&gt;/g,   ">")
+                .replace(/&quot;/g, '"')
+                .replace(/&apos;/g, "'")
+
+            if (href.startsWith("appstream://") ||
+                href.startsWith("apt://")       ||
+                href.startsWith("snap://")      ||
+                href.startsWith("filenamesearch:") ||
+                href.startsWith("tar://")       ||
+                href.startsWith("search:"))     continue
+
+            // Dla file managerów — pokaż tylko foldery (file:// bez rozszerzenia)
+            var isFileMgr = popup.fileManagerIds.indexOf(popup.appId.toLowerCase()) >= 0
+            if (isFileMgr) {
+                if (!href.startsWith("file://")) continue
+                var decoded   = decodeURIComponent(href.substring(7)).replace(/\/$/, "")
+                var lastSlash = decoded.lastIndexOf("/")
+                var basename  = lastSlash >= 0 ? decoded.substring(lastSlash + 1) : decoded
+                var dotPos    = basename.indexOf(".")
+                if (dotPos > 0) continue  // ma rozszerzenie → to plik, nie folder
+            }
+
+            var visitedM  = /visited="([^"]*)"/.exec(section)
+            var modifiedM = /modified="([^"]*)"/.exec(section)
+            var visited   = (visitedM  ? visitedM[1]  : "")
+                         || (modifiedM ? modifiedM[1] : "")
+
+            var titleM = /<title>([^<]*)<\/title>/.exec(section)
+            var title  = titleM ? titleM[1].trim() : ""
+            if (!title) title = titleFor(href)
+
+            var appsM = /<bookmark:applications>([\s\S]*?)<\/bookmark:applications>/.exec(section)
+            if (!appsM) continue
+            var nameRe = /name="([^"]*)"/g
+            var nameM2
+            var appMatches = false
+            while ((nameM2 = nameRe.exec(appsM[1])) !== null) {
+                if (matchesApp(nameM2[1])) { appMatches = true; break }
+            }
+
+            if (appMatches && href) items.push({ href: href, title: title, visited: visited })
+        }
+
+        items.sort(function(a, b) {
+            return a.visited < b.visited ? 1 : a.visited > b.visited ? -1 : 0
+        })
+
+        var pinnedSet = {}
+        for (var j = 0; j < pinnedModel.count; j++) {
+            pinnedSet[pinnedModel.get(j).href] = true
+        }
+
+        var isFileMgrXbel = popup.fileManagerIds.indexOf(popup.appId.toLowerCase()) >= 0
+        // Dla file managerów sesja Dolphina już wypełniła recentModel — nie czyść
+        if (!isFileMgrXbel) recentModel.clear()
+
+        // Zbierz co już jest w modelu (żeby nie duplikować)
+        var existingInModel = {}
+        for (var e = 0; e < recentModel.count; e++) existingInModel[recentModel.get(e).href] = true
+
+        var count = recentModel.count
+        for (var k = 0; k < items.length && count < popup.maxRecent; k++) {
+            if (!pinnedSet[items[k].href] && !existingInModel[items[k].href]) {
+                recentModel.append({ href: items[k].href, title: items[k].title, pinned: false })
+                existingInModel[items[k].href] = true
+                count++
+            }
+        }
     }
 }
