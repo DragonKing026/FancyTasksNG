@@ -72,11 +72,18 @@ def get_folder_icon(path):
     # Następnie: mapa folderów XDG
     return _XDG_ICONS.get(path, 'folder')
 
+VSCODE_IDS = {
+    'com.visualstudio.code', 'code', 'code-oss', 'vscodium',
+    'com.vscodium.codium', 'org.vscodium.vscodium',
+}
+
 def mode_app(agent, limit):
     a = agent.lower()
     short = a.split('.')[-1]
     if a in FILE_MANAGER_IDS or short in FILE_MANAGER_IDS:
         query_filemanager(agent, limit)
+    elif a in VSCODE_IDS or short in VSCODE_IDS or 'vscode' in a or ('visualstudio' in a and 'code' in a):
+        query_vscode(limit)
     else:
         query_browser(agent, limit)
 
@@ -122,6 +129,82 @@ def query_filemanager(agent, limit):
         if len(output) >= limit:
             break
     print(json.dumps(output, ensure_ascii=False))
+
+def _vscode_ssh_label(folder_uri):
+    """Dla URI vscode-remote://ssh-remote+<hex-json>/path zwraca 'folder @ hostname'."""
+    import binascii
+    from urllib.parse import unquote
+    try:
+        # Przykład: vscode-remote://ssh-remote%2B7b22686f73744e616d65223a2254656e616e746f2e706c227d/home/tenanto/app
+        decoded = unquote(folder_uri)
+        # Wyodrębnij sekcję między // a pierwszym /ścieżka
+        # format: vscode-remote://ssh-remote+<hex>/path
+        rest = decoded[len('vscode-remote://ssh-remote+'):]
+        hex_part, _, remote_path = rest.partition('/')
+        # hex_part to JSON zakodowany jako hex: {"hostName":"..."}
+        host_json = binascii.unhexlify(hex_part).decode('utf-8')
+        host_data = json.loads(host_json)
+        hostname = host_data.get('hostName', hex_part)
+        folder_name = remote_path.rstrip('/').rsplit('/', 1)[-1] or remote_path
+        return f'{folder_name} @ {hostname}', 'network-server'
+    except Exception:
+        return None, 'network-server'
+
+
+def query_vscode(limit):
+    """Zwraca ostatnio otwarte projekty/foldery VS Code, posortowane po czasie dostępu."""
+    from urllib.parse import unquote
+
+    # Lokalizacje workspaceStorage — natywna i Flatpak
+    workspace_dirs = [
+        os.path.join(home, '.config/Code/User/workspaceStorage'),
+        os.path.join(home, '.var/app/com.visualstudio.code/config/Code/User/workspaceStorage'),
+        os.path.join(home, '.config/VSCodium/User/workspaceStorage'),
+        os.path.join(home, '.var/app/com.vscodium.codium/config/VSCodium/User/workspaceStorage'),
+    ]
+
+    items = []
+    seen_uris = set()
+
+    for ws_dir in workspace_dirs:
+        if not os.path.isdir(ws_dir):
+            continue
+        for ws_json in glob.glob(os.path.join(ws_dir, '*/workspace.json')):
+            try:
+                data = json.load(open(ws_json))
+                folder_uri = data.get('folder', '')
+                if not folder_uri:
+                    continue
+                mtime = os.path.getmtime(os.path.dirname(ws_json))
+                if folder_uri not in seen_uris:
+                    seen_uris.add(folder_uri)
+                    items.append((mtime, folder_uri))
+            except Exception:
+                pass
+
+    # Sortuj od najświeższych, ogranicz do limitu
+    items.sort(key=lambda x: x[0], reverse=True)
+    items = items[:limit]
+
+    output = []
+    for _, url in items:
+        if url.startswith('file://'):
+            path = unquote(url[len('file://'):]).rstrip('/')
+            basename = path.rsplit('/', 1)[-1] if '/' in path else path
+            icon = get_folder_icon(path) if os.path.isdir(path) else 'folder'
+            output.append({"url": url, "title": basename or url, "icon": icon})
+        elif 'ssh-remote' in url:
+            title, icon = _vscode_ssh_label(url)
+            if not title:
+                title = url
+            output.append({"url": url, "title": title, "icon": icon})
+        else:
+            # WSL, Dev Container, tunnel itp.
+            label = unquote(url).rsplit('/', 1)[-1] or url
+            output.append({"url": url, "title": label, "icon": "network-server"})
+
+    print(json.dumps(output, ensure_ascii=False))
+
 
 def query_browser(agent, limit):
     a = agent.lower()

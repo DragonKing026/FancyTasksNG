@@ -52,6 +52,22 @@ PlasmaCore.AppletPopup {
     readonly property int icoSize:   Kirigami.Units.iconSizes.small
     readonly property int maxRecent: 5
     readonly property var fileManagerIds: ["org.kde.dolphin", "org.kde.krusader", "org.gnome.nautilus", "pcmanfm", "nemo", "thunar", "doublecmd"]
+    readonly property bool isVSCode: {
+        var a = popup.appId.toLowerCase()
+        return a === "code" || a === "code-oss" || a === "vscodium"
+            || a === "com.visualstudio.code" || a === "com.vscodium.codium"
+            || a.indexOf("vscode") >= 0
+    }
+
+    // DataSource do otwierania elementów (np. code <path>)
+    Plasma5Support.DataSource {
+        id: openSource
+        engine: "executable"
+        connectedSources: []
+        onNewData: function(sourceName, data) {
+            disconnectSource(sourceName)
+        }
+    }
 
     // Async: python3 get-history.py --app <appId> --limit N
     Plasma5Support.DataSource {
@@ -119,7 +135,7 @@ PlasmaCore.AppletPopup {
 
         TapHandler {
             cursorShape: Qt.PointingHandCursor
-            onTapped:    { Qt.openUrlExternally(row.href); popup.close() }
+            onTapped:    { popup.openHref(row.href); popup.close() }
         }
 
         RowLayout {
@@ -326,6 +342,25 @@ PlasmaCore.AppletPopup {
 
     function open()  { popup.visible = true  }
     function close() { popup.visible = false }
+
+    function openHref(href) {
+        if (popup.isVSCode) {
+            var cmd
+            if (href.startsWith("vscode-remote://")) {
+                // Zdalne repozytorium SSH / WSL itp.
+                cmd = "code --folder-uri " + href
+            } else if (href.startsWith("file://")) {
+                var path = decodeURIComponent(href.substring(7))
+                cmd = "code " + JSON.stringify(path)
+            } else {
+                Qt.openUrlExternally(href)
+                return
+            }
+            openSource.connectSource(cmd)
+        } else {
+            Qt.openUrlExternally(href)
+        }
+    }
 
     // Wejście: wywoływane przez Task.qml przy prawym kliknięciu
     function beginLoad(contextMenuArgs) {
