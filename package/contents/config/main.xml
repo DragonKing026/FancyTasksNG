@@ -475,6 +475,14 @@
       <label>Show browsing history in the context menu of web browsers.</label>
       <default>false</default>
     </entry>
+    <entry name="pinnedRecentItems" type="StringList">
+      <label>Pinned recent items per app. Format: appId|url|title</label>
+      <default></default>
+    </entry>
+    <entry name="showRecentInTooltip" type="Bool">
+      <label>Show recent files/URLs in task tooltip</label>
+      <default>true</default>
+    </entry>
     <entry name="browserHistoryLimit" type="Int">
       <label>Number of browser history items to show.</label>
       <default>10</default>

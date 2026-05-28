@@ -1,0 +1,474 @@
+/*
+    SPDX-FileCopyrightText: 2026 FancyTasksNG contributors
+    SPDX-License-Identifier: GPL-2.0-or-later
+
+    RecentItemsPopup.qml
+    Custom right-click popup showing pinned ("Ulubione") and recent ("Ostatnie")
+    items for the clicked task, read from ~/.local/share/recently-used.xbel.
+
+    Each row: [favicon 16px] [title/URL, elided] [pin/unpin button]
+    Footer:   [Więcej opcji…] → emits moreOptionsRequested() signal
+*/
+
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import QtQuick.Layouts
+import QtQuick.Controls as QQC2
+import QtCore
+
+import org.kde.plasma.plasmoid
+import org.kde.plasma.components as PlasmaComponents3
+import org.kde.kirigami as Kirigami
+
+import "code/singletones"
+
+QQC2.Popup {
+    id: popup
+
+    // ── Public API ─────────────────────────────────────────────────────────
+    required property string appId
+    required property Item   taskItem   // The Task item — used as visual parent
+
+    // Saved context-menu args (forwarded when user clicks "Więcej opcji…")
+    property var pendingArgs: null
+
+    // Emitted after the popup closes so Task.qml can open the standard context menu
+    signal moreOptionsRequested()
+
+    // ── Positioning ────────────────────────────────────────────────────────
+    // Parent in QQC2 Popup = anchor for coordinate system; popup renders on Overlay layer
+    parent: taskItem
+    // x/y are set imperatively in onAboutToShow (after models are populated but before display)
+    x: 0
+    y: 0
+
+    // ── Popup behaviour ────────────────────────────────────────────────────
+    modal: false
+    focus: true
+    closePolicy: QQC2.Popup.CloseOnEscape | QQC2.Popup.CloseOnPressOutside
+
+    padding:       Kirigami.Units.smallSpacing
+    topPadding:    Kirigami.Units.smallSpacing
+    bottomPadding: Kirigami.Units.smallSpacing
+
+    implicitWidth: 320
+
+    // ── Plasma-style background ────────────────────────────────────────────
+    background: Rectangle {
+        color:        Kirigami.Theme.backgroundColor
+        border.color: Kirigami.ColorUtils.linearInterpolation(
+                          Kirigami.Theme.backgroundColor,
+                          Kirigami.Theme.textColor, 0.25)
+        border.width: 1
+        radius:       4
+    }
+
+    // ── Constants ──────────────────────────────────────────────────────────
+    readonly property int icoSize:   Kirigami.Units.iconSizes.small   // 16 px
+    readonly property int maxRecent: 5
+
+    // ── Data models ────────────────────────────────────────────────────────
+    ListModel { id: pinnedModel }
+    ListModel { id: recentModel }
+
+    // ── One-row item ───────────────────────────────────────────────────────
+    // Layout:  [favicon]  [title, elided]  [pin button]
+    component ItemRow: Item {
+        id: row
+
+        // Provided by the Repeater model
+        required property string href
+        required property string title
+        required property bool   pinned
+
+        implicitHeight: rowLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
+        implicitWidth:  rowLayout.implicitWidth
+
+        // ── Hover highlight ──────────────────────────────────────────────
+        HoverHandler { id: rowHover }
+
+        Rectangle {
+            anchors { fill: parent; margins: -1 }
+            color:   Kirigami.Theme.highlightColor
+            opacity: rowHover.hovered ? 0.15 : 0.0
+            radius:  3
+            z:       -1
+            Behavior on opacity { NumberAnimation { duration: 80 } }
+        }
+
+        // ── Click to open URL ────────────────────────────────────────────
+        TapHandler {
+            cursorShape: Qt.PointingHandCursor
+            onTapped:    { Qt.openUrlExternally(row.href); popup.close() }
+        }
+
+        RowLayout {
+            id: rowLayout
+            anchors {
+                left:           parent.left
+                right:          parent.right
+                verticalCenter: parent.verticalCenter
+                leftMargin:     Kirigami.Units.smallSpacing
+                rightMargin:    Kirigami.Units.smallSpacing
+            }
+            spacing: Kirigami.Units.smallSpacing
+
+            // ── Favicon ──────────────────────────────────────────────────
+            Item {
+                width:  popup.icoSize
+                height: popup.icoSize
+                Layout.alignment: Qt.AlignVCenter
+
+                Image {
+                    id: faviconImg
+                    anchors.fill: parent
+                    source:       popup.faviconFor(row.href)
+                    visible:      status === Image.Ready
+                    asynchronous: true
+                    smooth:       true
+                    fillMode:     Image.PreserveAspectFit
+                    cache:        true
+                }
+                Kirigami.Icon {
+                    anchors.fill: parent
+                    visible:      faviconImg.status !== Image.Ready
+                    source: {
+                        if (row.href.startsWith("http://") || row.href.startsWith("https://"))
+                            return "internet-web-browser"
+                        return "document-open"
+                    }
+                }
+            }
+
+            // ── Title ────────────────────────────────────────────────────
+            PlasmaComponents3.Label {
+                Layout.fillWidth:  true
+                Layout.alignment:  Qt.AlignVCenter
+                text:              row.title
+                elide:             Text.ElideRight
+                font.family:       Kirigami.Theme.smallFont.family
+                font.pointSize:    Kirigami.Theme.smallFont.pointSize
+            }
+
+            // ── Pin / unpin button ────────────────────────────────────────
+            PlasmaComponents3.ToolButton {
+                id: pinBtn
+                Layout.alignment: Qt.AlignVCenter
+
+                visible: rowHover.hovered || row.pinned
+                opacity: visible ? 1.0 : 0.0
+                Behavior on opacity { NumberAnimation { duration: 80 } }
+
+                implicitWidth:  popup.icoSize + 8
+                implicitHeight: popup.icoSize + 8
+                flat:    true
+                display: QQC2.AbstractButton.IconOnly
+
+                icon.name:   row.pinned ? "starred-symbolic" : "non-starred-symbolic"
+                icon.width:  popup.icoSize
+                icon.height: popup.icoSize
+
+                PlasmaComponents3.ToolTip {
+                    text: row.pinned
+                          ? Wrappers.i18n("Usuń z ulubionych")
+                          : Wrappers.i18n("Dodaj do ulubionych")
+                }
+
+                onClicked: popup.doTogglePin(row.href, row.title)
+            }
+        }
+    }
+
+    // ── Content layout ─────────────────────────────────────────────────────
+    contentItem: ColumnLayout {
+        id: contentCol
+        spacing: 0
+
+        // ── Ulubione section ──────────────────────────────────────────────
+        PlasmaComponents3.Label {
+            visible:            pinnedModel.count > 0
+            Layout.fillWidth:   true
+            Layout.leftMargin:  Kirigami.Units.smallSpacing
+            Layout.topMargin:   Kirigami.Units.smallSpacing / 2
+            Layout.bottomMargin: 2
+            text:               Wrappers.i18n("Ulubione:")
+            font.bold:          true
+            font.family:        Kirigami.Theme.smallFont.family
+            font.pointSize:     Kirigami.Theme.smallFont.pointSize
+            opacity:            0.7
+        }
+
+        Repeater {
+            model: pinnedModel
+            delegate: ItemRow {
+                Layout.fillWidth: true
+            }
+        }
+
+        // ── Ostatnie section ──────────────────────────────────────────────
+        PlasmaComponents3.Label {
+            visible:             recentModel.count > 0
+            Layout.fillWidth:    true
+            Layout.leftMargin:   Kirigami.Units.smallSpacing
+            Layout.topMargin:    pinnedModel.count > 0 ? Kirigami.Units.smallSpacing : Kirigami.Units.smallSpacing / 2
+            Layout.bottomMargin: 2
+            text:                Wrappers.i18n("Ostatnie:")
+            font.bold:           true
+            font.family:         Kirigami.Theme.smallFont.family
+            font.pointSize:      Kirigami.Theme.smallFont.pointSize
+            opacity:             0.7
+        }
+
+        Repeater {
+            model: recentModel
+            delegate: ItemRow {
+                Layout.fillWidth: true
+            }
+        }
+
+        // ── Separator ─────────────────────────────────────────────────────
+        Rectangle {
+            Layout.fillWidth:  true
+            Layout.topMargin:  Kirigami.Units.smallSpacing
+            Layout.bottomMargin: 1
+            height: 1
+            color: Kirigami.ColorUtils.linearInterpolation(
+                       Kirigami.Theme.backgroundColor,
+                       Kirigami.Theme.textColor, 0.15)
+        }
+
+        // ── "Więcej opcji…" button ────────────────────────────────────────
+        Item {
+            Layout.fillWidth:    true
+            implicitHeight:      moreRow.implicitHeight + Kirigami.Units.smallSpacing * 2
+
+            HoverHandler { id: moreHover }
+
+            Rectangle {
+                anchors { fill: parent; margins: -1 }
+                color:   Kirigami.Theme.highlightColor
+                opacity: moreHover.hovered ? 0.15 : 0.0
+                radius:  3
+                z:       -1
+                Behavior on opacity { NumberAnimation { duration: 80 } }
+            }
+
+            TapHandler {
+                cursorShape: Qt.PointingHandCursor
+                onTapped: {
+                    popup.close()
+                    Qt.callLater(function() { popup.moreOptionsRequested() })
+                }
+            }
+
+            RowLayout {
+                id: moreRow
+                anchors {
+                    left:           parent.left
+                    right:          parent.right
+                    verticalCenter: parent.verticalCenter
+                    leftMargin:     Kirigami.Units.smallSpacing
+                    rightMargin:    Kirigami.Units.smallSpacing
+                }
+                spacing: Kirigami.Units.smallSpacing
+
+                Kirigami.Icon {
+                    width:  popup.icoSize
+                    height: popup.icoSize
+                    source: "application-menu"
+                    Layout.alignment: Qt.AlignVCenter
+                }
+                PlasmaComponents3.Label {
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignVCenter
+                    text:             Wrappers.i18n("Więcej opcji…")
+                    font.family:      Kirigami.Theme.smallFont.family
+                    font.pointSize:   Kirigami.Theme.smallFont.pointSize
+                }
+            }
+        }
+    }
+
+    // ── Public function: load items and return true if any exist ───────────
+    function tryLoad(contextMenuArgs): bool {
+        pendingArgs = contextMenuArgs
+        doRefreshPinned()
+        doLoadSync()
+        return pinnedModel.count > 0 || recentModel.count > 0
+    }
+
+    // Compute popup position before it is shown (models already populated by tryLoad)
+    onAboutToShow: {
+        // Approximate row height: icon(16) + smallSpacing*2 vertical padding + internal margins
+        var rowH  = popup.icoSize + Kirigami.Units.smallSpacing * 2 + 6   // ~30 px
+        var lblH  = 22   // section header label
+        var sepH  = 1 + Kirigami.Units.smallSpacing * 2                   // separator
+
+        var estimH = popup.topPadding + popup.bottomPadding
+        if (pinnedModel.count > 0) estimH += lblH + pinnedModel.count * rowH
+        if (recentModel.count > 0) estimH += lblH + recentModel.count * rowH
+        estimH += sepH + rowH   // separator + "Więcej opcji…" row
+
+        popup.x = Math.round((taskItem.width - 320) / 2)
+        popup.y = -(estimH + Kirigami.Units.smallSpacing * 2)
+    }
+
+    // ── Private helpers ────────────────────────────────────────────────────
+
+    function faviconFor(href) {
+        if (!href) return ""
+        if (href.startsWith("http://") || href.startsWith("https://")) {
+            var afterScheme = href.substring(href.indexOf("://") + 3)
+            var slashIdx    = afterScheme.indexOf("/")
+            var host        = slashIdx >= 0 ? afterScheme.substring(0, slashIdx) : afterScheme
+            // Strip port number if present
+            var portIdx = host.lastIndexOf(":")
+            if (portIdx > 0) host = host.substring(0, portIdx)
+            // DuckDuckGo favicon service — more reliable than /favicon.ico
+            return "https://icons.duckduckgo.com/ip3/" + host + ".ico"
+        }
+        return ""
+    }
+
+    // Format URL for display: strip scheme, keep domain + path (max 70 chars)
+    function titleFor(href) {
+        if (!href) return ""
+        if (href.startsWith("http://") || href.startsWith("https://")) {
+            var after = href.substring(href.indexOf("://") + 3)
+            if (after.startsWith("www.")) after = after.substring(4)
+            // Strip trailing slash
+            if (after.endsWith("/")) after = after.slice(0, -1)
+            return after.length > 70 ? after.substring(0, 67) + "…" : after
+        }
+        if (href.startsWith("file://")) {
+            var path      = decodeURIComponent(href.substring(7))
+            var lastSlash = path.lastIndexOf("/")
+            return lastSlash >= 0 ? path.substring(lastSlash + 1) : path
+        }
+        var ls = href.lastIndexOf("/")
+        return ls >= 0 ? href.substring(ls + 1) : href
+    }
+
+    function matchesApp(appName) {
+        if (!popup.appId || !appName) return false
+        var a = appName.toLowerCase().replace(/_/g, ".")
+        var b = popup.appId.toLowerCase()
+        if (a === b) return true
+        if (a.endsWith("." + b)) return true
+        if (b.endsWith("." + a)) return true
+        return a.split(".").pop() === b.split(".").pop()
+    }
+
+    function doRefreshPinned() {
+        pinnedModel.clear()
+        var list   = Plasmoid.configuration.pinnedRecentItems || []
+        var prefix = popup.appId + "|"
+        for (var i = 0; i < list.length; i++) {
+            if (!list[i].startsWith(prefix)) continue
+            var rest  = list[i].substring(prefix.length)
+            var sep   = rest.indexOf("|")
+            var href  = sep >= 0 ? rest.substring(0, sep)      : rest
+            var title = sep >= 0 ? rest.substring(sep + 1)     : titleFor(href)
+            if (href) pinnedModel.append({ href: href, title: title || titleFor(href), pinned: true })
+        }
+    }
+
+    function doTogglePin(href, title) {
+        var key     = popup.appId + "|" + href + "|" + title.replace(/\|/g, " ")
+        var current = Plasmoid.configuration.pinnedRecentItems || []
+        var newList = []
+        var found   = false
+        for (var i = 0; i < current.length; i++) {
+            if (current[i] === key) {
+                found = true        // drop → unpin
+            } else {
+                newList.push(current[i])
+            }
+        }
+        if (!found) newList.push(key)
+        Plasmoid.configuration.pinnedRecentItems = newList
+        // Reload both models so pin state is visually updated
+        doRefreshPinned()
+        doLoadSync()
+    }
+
+    function doLoadSync() {
+        if (!popup.appId) return
+        var rawPath = StandardPaths.writableLocation(StandardPaths.GenericDataLocation)
+                          .toString().replace(/^file:\/\//, "")
+        var xbelUrl = "file://" + rawPath + "/recently-used.xbel"
+
+        var xhr = new XMLHttpRequest()
+        xhr.open("GET", xbelUrl, false)   // synchronous — local file, fast
+        try { xhr.send() } catch (e) { return }
+        if (xhr.status !== 0 && xhr.status !== 200) return
+
+        parseXBEL(xhr.responseText)
+    }
+
+    function parseXBEL(text) {
+        if (!text) return
+        var items = []
+
+        var parts = text.split("<bookmark ")
+        for (var i = 1; i < parts.length; i++) {
+            var section  = parts[i]
+            var closeIdx = section.indexOf("</bookmark>")
+            if (closeIdx >= 0) section = section.substring(0, closeIdx)
+
+            var hrefM = /href="([^"]*)"/.exec(section)
+            if (!hrefM) continue
+            var href = hrefM[1]
+                .replace(/&amp;/g,  "&")
+                .replace(/&lt;/g,   "<")
+                .replace(/&gt;/g,   ">")
+                .replace(/&quot;/g, '"')
+                .replace(/&apos;/g, "'")
+
+            if (href.startsWith("appstream://") ||
+                href.startsWith("apt://")       ||
+                href.startsWith("snap://"))    continue
+
+            var visitedM  = /visited="([^"]*)"/.exec(section)
+            var modifiedM = /modified="([^"]*)"/.exec(section)
+            var visited   = (visitedM  ? visitedM[1]  : "")
+                         || (modifiedM ? modifiedM[1] : "")
+
+            var titleM = /<title>([^<]*)<\/title>/.exec(section)
+            var title  = titleM ? titleM[1].trim() : ""
+            if (!title) title = titleFor(href)
+
+            var appsM = /<bookmark:applications>([\s\S]*?)<\/bookmark:applications>/.exec(section)
+            if (!appsM) continue
+            var nameRe = /name="([^"]*)"/g
+            var nameM2
+            var appMatches = false
+            while ((nameM2 = nameRe.exec(appsM[1])) !== null) {
+                if (matchesApp(nameM2[1])) { appMatches = true; break }
+            }
+
+            if (appMatches && href) items.push({ href: href, title: title, visited: visited })
+        }
+
+        // Newest first
+        items.sort(function(a, b) {
+            return a.visited < b.visited ? 1 : a.visited > b.visited ? -1 : 0
+        })
+
+        // Build pinned-href set for deduplication
+        var pinnedSet = {}
+        for (var j = 0; j < pinnedModel.count; j++) {
+            pinnedSet[pinnedModel.get(j).href] = true
+        }
+
+        recentModel.clear()
+        var count = 0
+        for (var k = 0; k < items.length && count < popup.maxRecent; k++) {
+            if (!pinnedSet[items[k].href]) {
+                recentModel.append({ href: items[k].href, title: items[k].title, pinned: false })
+                count++
+            }
+        }
+    }
+}

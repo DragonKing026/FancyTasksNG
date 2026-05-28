@@ -260,6 +260,7 @@ Loader {
                     isMuted: toolTipDelegate.isMuted
                 }
             }
+
         }
     }
 }
@@ -445,6 +446,7 @@ Loader {
                     }
                 }
             }
+
         }
     }
 }

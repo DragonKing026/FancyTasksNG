@@ -257,8 +257,9 @@ Item {
     readonly property var volumeOverlay: taskVolumeOverlayLoader.item
 
     readonly property bool highlighted: (task.inPopup && activeFocus) ||
-        (!task.inPopup && (containsMouse || isHovered)) || (tasksRoot.currentHoveredTask === task) || 
-        (task.contextMenu && task.contextMenu.status === PlasmaExtras.Menu.Open)
+        (!task.inPopup && (containsMouse || isHovered)) || (tasksRoot.currentHoveredTask === task) ||
+        (task.contextMenu && task.contextMenu.status === PlasmaExtras.Menu.Open) ||
+        recentPopup.visible
 
     property int itemIndex: index
 
@@ -297,7 +298,7 @@ Item {
         id: openTimer
         interval: 500
         onTriggered: {
-            if (task.containsMouse) {
+            if (task.containsMouse && !recentPopup.visible) {
                 task.openTooltip();
             }
         }
@@ -307,7 +308,7 @@ Item {
         id: switchTimer
         interval: 150 // Small delay to allow diagonal movement without aggressive tooltip switching
         onTriggered: {
-            if (task.containsMouse) {
+            if (task.containsMouse && !recentPopup.visible) {
                 task.openTooltip();
             }
         }
@@ -320,7 +321,7 @@ Item {
             closeTimer.stop();
             
             // If tooltip is already visible (switching between tasks), delay slightly to allow diagonal movement
-            if (tasksRoot.currentHoveredTask && tasksRoot.currentHoveredTask !== task) {
+            if (tasksRoot.currentHoveredTask && tasksRoot.currentHoveredTask !== task && !recentPopup.visible) {
                 switchTimer.restart();
             } else {
                 openTimer.restart();
@@ -552,6 +553,23 @@ Item {
     }
 
     function showContextMenu(args: var): void {
+        task.closeTooltip();
+        if (recentPopup.visible) {
+            recentPopup.close();
+            return;
+        }
+        var hasItems = false;
+        try { hasItems = recentPopup.tryLoad(args); } catch(e) {
+            console.warn("FancyTasks: recentPopup.tryLoad:", e);
+        }
+        if (hasItems) {
+            recentPopup.open();
+            return;
+        }
+        showContextMenuDirect(args);
+    }
+
+    function showContextMenuDirect(args: var): void {
         task.closeTooltip();
         contextMenu = tasksRoot.createContextMenu(task, task.modelIndex(), args);
         contextMenu.show();
@@ -896,6 +914,14 @@ Item {
         }
     }
 
+
+    // ── Custom right-click popup for recent/pinned items ──────────────────────
+    RecentItemsPopup {
+        id: recentPopup
+        appId: task.appId
+        taskItem: task
+        onMoreOptionsRequested: task.showContextMenuDirect(recentPopup.pendingArgs)
+    }
 
     Component.onCompleted: {
         task.lastSeenCount = task.badgeCount;
