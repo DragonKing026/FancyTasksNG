@@ -36,6 +36,7 @@ PlasmaCore.AppletPopup {
 
     property var  pendingArgs: null
     property bool pendingOpen:  false   // czekamy na async — po wyniku otwieramy popup
+    property int  pendingLoadCount: 0
 
     signal moreOptionsRequested()
 
@@ -51,6 +52,7 @@ PlasmaCore.AppletPopup {
 
     readonly property int icoSize:   Kirigami.Units.iconSizes.small
     readonly property int maxRecent: 5
+    readonly property int maxActions: 8
     readonly property var fileManagerIds: ["org.kde.dolphin", "org.kde.krusader", "org.gnome.nautilus", "pcmanfm", "nemo", "thunar", "doublecmd"]
     readonly property bool isVSCode: {
         var a = popup.appId.toLowerCase()
@@ -99,15 +101,45 @@ PlasmaCore.AppletPopup {
             } catch(err) {
                 console.warn("FancyTasks: get-history parse error:", err)
             }
-            if (popup.pendingOpen) {
-                popup.pendingOpen = false
-                if (pinnedModel.count > 0 || recentModel.count > 0) {
-                    popup.visible = true
-                } else {
-                    // Brak wyników — otwórz standardowe menu KDE
-                    popup.moreOptionsRequested()
+            popup.finishOneAsyncLoad()
+        }
+    }
+
+    // Async: python3 get-launch-actions.py --app <appId> --list
+    Plasma5Support.DataSource {
+        id: launchActionsSource
+        engine: "executable"
+        connectedSources: []
+        onNewData: function(sourceName, data) {
+            var stdout = (data && data["stdout"]) || ""
+            disconnectSource(sourceName)
+
+            launchActionsModel.clear()
+            try {
+                var entries = JSON.parse(stdout)
+                for (var i = 0; i < entries.length && i < popup.maxActions; i++) {
+                    var e = entries[i]
+                    if (!e || !e.id) continue
+                    launchActionsModel.append({
+                        actionId: e.id,
+                        text: e.text || e.id
+                    })
                 }
+            } catch(err) {
+                console.warn("FancyTasks: get-launch-actions parse error:", err)
             }
+
+            popup.finishOneAsyncLoad()
+        }
+    }
+
+    // Async: python3 get-launch-actions.py --app <appId> --run <actionId>
+    Plasma5Support.DataSource {
+        id: runActionSource
+        engine: "executable"
+        connectedSources: []
+        onNewData: function(sourceName, data) {
+            disconnectSource(sourceName)
         }
     }
 
@@ -216,6 +248,65 @@ PlasmaCore.AppletPopup {
         }
     }
 
+    component ActionRow: Item {
+        id: actionRow
+
+        required property string actionId
+        required property string text
+
+        implicitHeight: actionRowLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
+        implicitWidth:  actionRowLayout.implicitWidth
+
+        HoverHandler { id: actionHover }
+
+        Rectangle {
+            anchors { fill: parent; margins: -1 }
+            color:   Kirigami.Theme.highlightColor
+            opacity: actionHover.hovered ? 0.15 : 0.0
+            radius:  3
+            z:       -1
+            Behavior on opacity { NumberAnimation { duration: 80 } }
+        }
+
+        TapHandler {
+            cursorShape: Qt.PointingHandCursor
+            onTapped: {
+                popup.runLaunchAction(actionRow.actionId)
+                popup.close()
+            }
+        }
+
+        RowLayout {
+            id: actionRowLayout
+            anchors {
+                left:           parent.left
+                right:          parent.right
+                verticalCenter: parent.verticalCenter
+                leftMargin:     Kirigami.Units.smallSpacing
+                rightMargin:    Kirigami.Units.smallSpacing
+            }
+            spacing: Kirigami.Units.smallSpacing
+
+            Kirigami.Icon {
+                Layout.preferredWidth:  popup.icoSize
+                Layout.preferredHeight: popup.icoSize
+                Layout.alignment: Qt.AlignVCenter
+                source: "system-run"
+            }
+
+            PlasmaComponents3.Label {
+                Layout.fillWidth:  true
+                Layout.alignment:  Qt.AlignVCenter
+                text:              actionRow.text
+                elide:             Text.ElideRight
+                font.family:    Kirigami.Theme.smallFont.family
+                font.pointSize: Kirigami.Theme.smallFont.pointSize
+                font.weight:    Font.Normal
+                font.bold:      false
+            }
+        }
+    }
+
     mainItem: Item {
         implicitWidth:  320
         implicitHeight: contentCol.implicitHeight
@@ -223,6 +314,7 @@ PlasmaCore.AppletPopup {
         // ListModels here — not at Dialog level (defaultProperty = QQuickItem*)
         ListModel { id: pinnedModel }
         ListModel { id: recentModel }
+        ListModel { id: launchActionsModel }
 
         Timer {
             id: moreOptionsTimer
@@ -272,6 +364,26 @@ PlasmaCore.AppletPopup {
             Repeater {
                 model: recentModel
                 delegate: ItemRow {
+                    Layout.fillWidth: true
+                }
+            }
+
+            PlasmaComponents3.Label {
+                visible:             launchActionsModel.count > 0
+                Layout.fillWidth:    true
+                Layout.leftMargin:   Kirigami.Units.smallSpacing
+                Layout.topMargin:    (pinnedModel.count > 0 || recentModel.count > 0) ? Kirigami.Units.smallSpacing : Kirigami.Units.smallSpacing / 2
+                Layout.bottomMargin: 2
+                text:                Wrappers.i18n("Akcje:")
+                font.bold:           true
+                font.family:         Kirigami.Theme.smallFont.family
+                font.pointSize:      Kirigami.Theme.smallFont.pointSize
+                opacity:             0.7
+            }
+
+            Repeater {
+                model: launchActionsModel
+                delegate: ActionRow {
                     Layout.fillWidth: true
                 }
             }
@@ -367,15 +479,27 @@ PlasmaCore.AppletPopup {
         if (!popup.appId) return
         pendingArgs = contextMenuArgs
         recentModel.clear()
+        launchActionsModel.clear()
         doRefreshPinned()
+
+        // New request: clear previous async processes to avoid stale callbacks.
+        while (historySource.connectedSources.length > 0) {
+            historySource.disconnectSource(historySource.connectedSources[0])
+        }
+        while (launchActionsSource.connectedSources.length > 0) {
+            launchActionsSource.disconnectSource(launchActionsSource.connectedSources[0])
+        }
+
+        pendingLoadCount = 2
+        popup.pendingOpen = (pinnedModel.count === 0)
+
         if (pinnedModel.count > 0) {
             // Pokaż popup od razu z ulubionymi; ostatnie wczytają się async
             popup.visible = true
-        } else {
-            // Czekaj na wynik async — wtedy dopiero otwórz lub przejdź do std menu
-            popup.pendingOpen = true
         }
+
         loadAppHistoryAsync()
+        loadLaunchActionsAsync()
     }
 
     // Kompatybilność wsteczna — tryLoad nie jest już używane przez Task.qml
@@ -387,8 +511,40 @@ PlasmaCore.AppletPopup {
     function loadAppHistoryAsync() {
         var scriptPath = Qt.resolvedUrl("../code/get-history.py").toString().replace(/^file:\/\//, "")
         historySource.connectSource(
-            "python3 " + scriptPath + " --app " + popup.appId + " --limit " + (popup.maxRecent + 5)
+            "python3 " + JSON.stringify(scriptPath) + " --app " + JSON.stringify(popup.appId) + " --limit " + (popup.maxRecent + 5)
         )
+    }
+
+    function loadLaunchActionsAsync() {
+        var scriptPath = Qt.resolvedUrl("../code/get-launch-actions.py").toString().replace(/^file:\/\//, "")
+        launchActionsSource.connectSource(
+            "python3 " + JSON.stringify(scriptPath) + " --app " + JSON.stringify(popup.appId) + " --list"
+        )
+    }
+
+    function runLaunchAction(actionId) {
+        if (!actionId) return
+        var scriptPath = Qt.resolvedUrl("../code/get-launch-actions.py").toString().replace(/^file:\/\//, "")
+        runActionSource.connectSource(
+            "python3 " + JSON.stringify(scriptPath) + " --app " + JSON.stringify(popup.appId) + " --run " + JSON.stringify(actionId)
+        )
+    }
+
+    function finishOneAsyncLoad() {
+        if (pendingLoadCount > 0) {
+            pendingLoadCount--
+        }
+        if (pendingLoadCount > 0 || !popup.pendingOpen) {
+            return
+        }
+
+        popup.pendingOpen = false
+        if (pinnedModel.count > 0 || recentModel.count > 0 || launchActionsModel.count > 0) {
+            popup.visible = true
+        } else {
+            // Brak wyników — otwórz standardowe menu KDE
+            popup.moreOptionsRequested()
+        }
     }
 
     function faviconFor(href) {
