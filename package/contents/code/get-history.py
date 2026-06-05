@@ -8,7 +8,8 @@
 #   Szybkie zapytanie do KDE Activity DB dla konkretnej aplikacji.
 #   Wypisuje N ostatnich zasobów na stdout (JSON). Brak zapisu cache, brak skanowania przeglądarek.
 
-import sqlite3, shutil, os, json, glob, argparse
+import sqlite3, shutil, os, json, glob, argparse, re
+from urllib.parse import urlparse
 
 home = os.path.expanduser('~')
 
@@ -77,7 +78,211 @@ VSCODE_IDS = {
     'com.vscodium.codium', 'org.vscodium.vscodium',
 }
 
-def mode_app(agent, limit):
+def _xdg_data_dirs():
+    dirs = []
+    dirs.append(os.path.join(home, '.local/share'))
+    env = os.environ.get('XDG_DATA_DIRS', '/usr/local/share:/usr/share')
+    for part in env.split(':'):
+        part = part.strip()
+        if part:
+            dirs.append(part)
+    return dirs
+
+
+def _desktop_paths_for_id(desktop_id):
+    if not desktop_id:
+        return []
+    name = desktop_id
+    if name.startswith('applications:'):
+        name = name[len('applications:'):]
+    if not name.endswith('.desktop'):
+        name += '.desktop'
+
+    paths = []
+    for base in _xdg_data_dirs():
+        paths.append(os.path.join(base, 'applications', name))
+    return paths
+
+
+def _read_desktop_entry(path):
+    if not path or not os.path.isfile(path):
+        return {}
+    result = {}
+    in_entry = False
+    try:
+        with open(path, encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                s = line.strip()
+                if not s or s.startswith('#'):
+                    continue
+                if s.startswith('['):
+                    in_entry = (s == '[Desktop Entry]')
+                    continue
+                if not in_entry or '=' not in s:
+                    continue
+                k, v = s.split('=', 1)
+                if k and v is not None:
+                    result[k.strip()] = v.strip()
+    except Exception:
+        return {}
+    return result
+
+
+def _extract_urls(text):
+    if not text:
+        return []
+    return re.findall(r'https?://[^\s"\']+', text)
+
+
+def _extract_chromium_app_id(exec_line):
+    if not exec_line:
+        return None
+    m = re.search(r'--app-id=([a-z]{32})', exec_line)
+    if m:
+        return m.group(1)
+    return None
+
+
+def _first_url_from_manifest(obj):
+    if isinstance(obj, dict):
+        for key in ('launch_url', 'start_url', 'scope', 'app_url', 'url'):
+            val = obj.get(key)
+            if isinstance(val, str) and val.startswith(('http://', 'https://')):
+                return val
+        for val in obj.values():
+            found = _first_url_from_manifest(val)
+            if found:
+                return found
+    elif isinstance(obj, list):
+        for val in obj:
+            found = _first_url_from_manifest(val)
+            if found:
+                return found
+    return None
+
+
+def _browser_profile_roots(agent):
+    a = (agent or '').lower()
+    roots = []
+    if 'brave' in a:
+        roots += [
+            f'{home}/.config/BraveSoftware/Brave-Browser',
+            f'{home}/.var/app/com.brave.Browser/config/BraveSoftware/Brave-Browser',
+        ]
+    elif 'chrome' in a:
+        roots += [
+            f'{home}/.config/google-chrome',
+            f'{home}/.var/app/com.google.Chrome/config/google-chrome',
+        ]
+    elif 'chromium' in a:
+        roots += [
+            f'{home}/.config/chromium',
+            f'{home}/.var/app/org.chromium.Chromium/config/chromium',
+        ]
+    elif 'opera-gx' in a or 'operagx' in a:
+        roots += [f'{home}/.config/opera-gx']
+    elif 'opera' in a:
+        roots += [
+            f'{home}/.config/opera',
+            f'{home}/.var/app/com.opera.Opera/config/opera',
+        ]
+    elif 'edge' in a or 'microsoft' in a:
+        roots += [
+            f'{home}/.config/microsoft-edge',
+            f'{home}/.var/app/com.microsoft.Edge/config/microsoft-edge',
+        ]
+    elif 'vivaldi' in a:
+        roots += [f'{home}/.config/vivaldi']
+    elif 'thorium' in a:
+        roots += [f'{home}/.config/thorium']
+    return [r for r in roots if os.path.isdir(r)]
+
+
+def _url_host(url):
+    try:
+        p = urlparse(url)
+        return (p.hostname or '').lower()
+    except Exception:
+        return ''
+
+
+def _resolve_site_host(agent, launcher, app_name):
+    desktop_id = None
+    if launcher:
+        desktop_id = launcher
+
+    desktop = {}
+    if desktop_id:
+        for path in _desktop_paths_for_id(desktop_id):
+            desktop = _read_desktop_entry(path)
+            if desktop:
+                break
+
+    # First choice: URL present directly in desktop file.
+    desktop_blob = '\n'.join(str(v) for v in desktop.values())
+    urls = _extract_urls(desktop_blob)
+    for u in urls:
+        host = _url_host(u)
+        if host:
+            return host
+
+    # Chromium PWAs usually expose --app-id in Exec; map it to manifest URL.
+    chromium_app_id = _extract_chromium_app_id(desktop.get('Exec', ''))
+    if chromium_app_id:
+        for root in _browser_profile_roots(agent):
+            for profile in ['Default'] + sorted(glob.glob(os.path.join(root, 'Profile *'))):
+                profile_dir = profile if os.path.isdir(profile) else os.path.join(root, profile)
+                if not os.path.isdir(profile_dir):
+                    continue
+
+                manifest_paths = [
+                    os.path.join(profile_dir, 'Web Applications', '_crx_' + chromium_app_id, 'manifest.json'),
+                    os.path.join(profile_dir, 'Web Applications', '_crx_' + chromium_app_id, chromium_app_id + '.json'),
+                ]
+                for mp in manifest_paths:
+                    if not os.path.isfile(mp):
+                        continue
+                    try:
+                        with open(mp, encoding='utf-8', errors='ignore') as f:
+                            data = json.load(f)
+                        url = _first_url_from_manifest(data)
+                        host = _url_host(url)
+                        if host:
+                            return host
+                    except Exception:
+                        continue
+
+    # Weak fallback: if app name looks like a domain.
+    n = (app_name or '').strip().lower()
+    if '.' in n and ' ' not in n and re.match(r'^[a-z0-9.-]+$', n):
+        return n
+
+    return None
+
+
+def _looks_like_site_app(launcher, agent):
+    l = (launcher or '').lower()
+    a = (agent or '').lower()
+    if not l:
+        return False
+
+    # Typical Chromium/Brave app desktop IDs:
+    # ...brave-<32chars>-Default.desktop, ...chrome-<32chars>-Default.desktop
+    if re.search(r'(brave|chrome|chromium|edge|opera|vivaldi|thorium)-[a-z]{32}-(default|profile\s*\d+)', l):
+        return True
+
+    # Flatpak desktop IDs often contain browser vendor prefix plus app-id chunk.
+    if ('com.brave.browser' in l or 'com.google.chrome' in l or 'org.chromium.chromium' in l) and re.search(r'[a-z]{32}', l):
+        return True
+
+    # Generic catch for launcher URLs that include 32-char chromium app id.
+    if ('applications:' in l or l.endswith('.desktop')) and re.search(r'[a-z]{32}', l):
+        return True
+
+    return False
+
+
+def mode_app(agent, limit, launcher=None, app_name=None):
     a = agent.lower()
     short = a.split('.')[-1]
     if a in FILE_MANAGER_IDS or short in FILE_MANAGER_IDS:
@@ -85,7 +290,7 @@ def mode_app(agent, limit):
     elif a in VSCODE_IDS or short in VSCODE_IDS or 'vscode' in a or ('visualstudio' in a and 'code' in a):
         query_vscode(limit)
     else:
-        query_browser(agent, limit)
+        query_browser(agent, limit, launcher, app_name)
 
 def query_filemanager(agent, limit):
     db = os.path.join(home, '.local/share/kactivitymanagerd/resources/database')
@@ -206,7 +411,7 @@ def query_vscode(limit):
     print(json.dumps(output, ensure_ascii=False))
 
 
-def query_browser(agent, limit):
+def query_browser(agent, limit, launcher=None, app_name=None):
     a = agent.lower()
     chromium_paths, firefox_patterns = [], []
     if 'brave' in a:
@@ -256,6 +461,23 @@ def query_browser(agent, limit):
     else:
         print('[]'); return
 
+    site_host = _resolve_site_host(agent, launcher, app_name)
+    if not site_host and _looks_like_site_app(launcher, agent):
+        # Better to show no entries than unrelated global browser history.
+        print('[]')
+        return
+    host_like_values = []
+    if site_host:
+        host_like_values.append('https://' + site_host + '/%')
+        host_like_values.append('http://' + site_host + '/%')
+        if site_host.startswith('www.'):
+            base = site_host[4:]
+            host_like_values.append('https://' + base + '/%')
+            host_like_values.append('http://' + base + '/%')
+        else:
+            host_like_values.append('https://www.' + site_host + '/%')
+            host_like_values.append('http://www.' + site_host + '/%')
+
     rows = []
     for path in chromium_paths:
         if not os.path.exists(path): continue
@@ -263,11 +485,21 @@ def query_browser(agent, limit):
         try:
             shutil.copy2(path, tmp)
             conn = sqlite3.connect(tmp)
-            rows = [{"url": u, "title": t} for u, t in conn.execute(
-                "SELECT url, title FROM urls "
-                "WHERE title IS NOT NULL AND title != '' "
-                "ORDER BY last_visit_time DESC LIMIT ?", (limit,)
-            ) if u and t]
+            if host_like_values:
+                where = ' OR '.join(['url LIKE ?'] * len(host_like_values))
+                sql = (
+                    "SELECT url, title FROM urls "
+                    "WHERE title IS NOT NULL AND title != '' AND (" + where + ") "
+                    "ORDER BY last_visit_time DESC LIMIT ?"
+                )
+                params = tuple(host_like_values + [limit])
+                rows = [{"url": u, "title": t} for u, t in conn.execute(sql, params) if u and t]
+            else:
+                rows = [{"url": u, "title": t} for u, t in conn.execute(
+                    "SELECT url, title FROM urls "
+                    "WHERE title IS NOT NULL AND title != '' "
+                    "ORDER BY last_visit_time DESC LIMIT ?", (limit,)
+                ) if u and t]
             conn.close()
         except Exception: pass
         finally:
@@ -282,11 +514,21 @@ def query_browser(agent, limit):
             try:
                 shutil.copy2(f, tmp)
                 conn = sqlite3.connect(tmp)
-                rows = [{"url": u, "title": t} for u, t in conn.execute(
-                    "SELECT url, title FROM moz_places "
-                    "WHERE title IS NOT NULL AND title != '' "
-                    "ORDER BY last_visit_date DESC LIMIT ?", (limit,)
-                ) if u and t]
+                if host_like_values:
+                    where = ' OR '.join(['url LIKE ?'] * len(host_like_values))
+                    sql = (
+                        "SELECT url, title FROM moz_places "
+                        "WHERE title IS NOT NULL AND title != '' AND (" + where + ") "
+                        "ORDER BY last_visit_date DESC LIMIT ?"
+                    )
+                    params = tuple(host_like_values + [limit])
+                    rows = [{"url": u, "title": t} for u, t in conn.execute(sql, params) if u and t]
+                else:
+                    rows = [{"url": u, "title": t} for u, t in conn.execute(
+                        "SELECT url, title FROM moz_places "
+                        "WHERE title IS NOT NULL AND title != '' "
+                        "ORDER BY last_visit_date DESC LIMIT ?", (limit,)
+                    ) if u and t]
                 conn.close()
             except Exception: pass
             finally:
@@ -397,11 +639,13 @@ def mode_browsers():
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 parser = argparse.ArgumentParser(add_help=False)
-parser.add_argument('--app',   default=None)
+parser.add_argument('--app', default=None)
+parser.add_argument('--launcher', default=None)
+parser.add_argument('--name', default=None)
 parser.add_argument('--limit', type=int, default=10)
 args, _ = parser.parse_known_args()
 
 if args.app:
-    mode_app(args.app, args.limit)
+    mode_app(args.app, args.limit, args.launcher, args.name)
 else:
     mode_browsers()

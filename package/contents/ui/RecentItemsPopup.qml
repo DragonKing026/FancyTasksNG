@@ -32,6 +32,8 @@ PlasmaCore.AppletPopup {
 
     // Public API
     required property string appId
+    property string launcherUrl: ""
+    property string appName: ""
     required property Item   taskItem
 
     property var  pendingArgs: null
@@ -511,7 +513,11 @@ PlasmaCore.AppletPopup {
     function loadAppHistoryAsync() {
         var scriptPath = Qt.resolvedUrl("../code/get-history.py").toString().replace(/^file:\/\//, "")
         historySource.connectSource(
-            "python3 " + JSON.stringify(scriptPath) + " --app " + JSON.stringify(popup.appId) + " --limit " + (popup.maxRecent + 5)
+            "python3 " + JSON.stringify(scriptPath)
+                + " --app " + JSON.stringify(popup.appId)
+                + " --launcher " + JSON.stringify(popup.launcherUrl || "")
+                + " --name " + JSON.stringify(popup.appName || "")
+                + " --limit " + (popup.maxRecent + 5)
         )
     }
 

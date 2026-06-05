@@ -916,6 +916,8 @@ Item {
     RecentItemsPopup {
         id: recentPopup
         appId: task.appId
+        launcherUrl: task.model.LauncherUrlWithoutIcon ? task.model.LauncherUrlWithoutIcon.toString() : (task.model.LauncherUrl ? task.model.LauncherUrl.toString().split('?')[0] : "")
+        appName: task.appName
         taskItem: task
         onMoreOptionsRequested: task.showContextMenuDirect(recentPopup.pendingArgs)
     }
