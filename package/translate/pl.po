@@ -890,3 +890,367 @@ msgstr "Dostępne też w %1"
 msgctxt "Which activities a window is currently on"
 msgid "Available on %1"
 msgstr "Dostępne w %1"
+
+#: ../contents/config/*.qml
+msgid "%1 — %2"
+msgstr "%1 — %2"
+
+msgid "Absolute"
+msgstr "Bezwzględny"
+
+msgid "Active application indicators:"
+msgstr "Wskaźniki aktywnej aplikacji:"
+
+msgid "Additional action with Ctrl key"
+msgstr "Dodatkowa akcja z klawiszem Ctrl"
+
+msgid "Adjusts volume of the window"
+msgstr "Reguluje głośność okna"
+
+msgid "Adjust system volume with Shift key"
+msgstr "Reguluj głośność systemu klawiszem Shift"
+
+msgid "Align Bottom"
+msgstr "Wyrównaj do dołu"
+
+msgid "Align Center"
+msgstr "Wyrównaj do środka"
+
+msgid "Align Left"
+msgstr "Wyrównaj do lewej"
+
+msgid "Alignment:"
+msgstr "Wyrównanie:"
+
+msgid "Align Right"
+msgstr "Wyrównaj do prawej"
+
+msgid "Align Top"
+msgstr "Wyrównaj do góry"
+
+msgid "Animate indicators"
+msgstr "Animuj wskaźniki"
+
+msgid "Animate task icon when a window wants attention"
+msgstr "Animuj ikonę zadania, gdy okno wymaga uwagi"
+
+msgid "Animation of closing/removing an icon from the panel"
+msgstr "Animacja zamykania/usuwania ikony z panelu"
+
+msgid "App name"
+msgstr "Nazwa aplikacji"
+
+msgid "As on bottom panel"
+msgstr "Jak na dolnym panelu"
+
+msgid "As on left panel"
+msgstr "Jak na lewym panelu"
+
+msgid "As on right panel"
+msgstr "Jak na prawym panelu"
+
+msgid "As on top panel"
+msgstr "Jak na górnym panelu"
+
+msgid "Average icon color"
+msgstr "Średni kolor ikony"
+
+msgid "Background color source:"
+msgstr "Źródło koloru tła:"
+
+msgid "Background opacity:"
+msgstr "Przezroczystość tła:"
+
+msgid "Behavior:"
+msgstr "Zachowanie:"
+
+msgid "By horizontal window position"
+msgstr "Według poziomej pozycji okna"
+
+msgid "Center"
+msgstr "Środek"
+
+msgid "Classic panel"
+msgstr "Klasyczny panel"
+
+msgid "Clicking active task minimizes the task"
+msgstr "Kliknięcie aktywnego zadania minimalizuje zadanie"
+
+msgid "Clicking group button:"
+msgstr "Kliknięcie przycisku grupy:"
+
+msgid "Clip icons to a custom shape"
+msgstr "Przytnij ikony do niestandardowego kształtu"
+
+msgid "Colors:"
+msgstr "Kolory:"
+
+msgid "Combine into one button by application name"
+msgstr "Połącz w jeden przycisk według nazwy aplikacji"
+
+msgid "Context menu:"
+msgstr "Menu kontekstowe:"
+
+msgid "Custom color:"
+msgstr "Własny kolor:"
+
+msgid "Custom color"
+msgstr "Własny kolor"
+
+msgid "Cycles through all tasks"
+msgstr "Przełącza między wszystkimi zadaniami"
+
+msgid "Cycles through all tasks (skip minimized)"
+msgstr "Przełącza między wszystkimi zadaniami (pomijaj zminimalizowane)"
+
+msgid "Cycles through tasks of the current group"
+msgstr "Przełącza między zadaniami bieżącej grupy"
+
+msgid "Cycles through tasks of the current group (skip minimized)"
+msgstr "Przełącza między zadaniami bieżącej grupy (pomijaj zminimalizowane)"
+
+msgid "Desaturate when minimized"
+msgstr "Desaturuj po zminimalizowaniu"
+
+msgid "Disable plasma context decorations"
+msgstr "Wyłącz dekoracje kontekstowe Plasmy"
+
+msgid "Dominant icon color"
+msgstr "Dominujący kolor ikony"
+
+msgid "Edge"
+msgstr "Krawędź"
+
+msgid "Edge offset:"
+msgstr "Odsunięcie od krawędzi:"
+
+msgid "Feedback:"
+msgstr "Informacja zwrotna:"
+
+msgid "Fill (Bottom-Top)"
+msgstr "Wypełnienie (dół-góra)"
+
+msgid "Fill (Left-Right)"
+msgstr "Wypełnienie (lewo-prawo)"
+
+msgid "Floating Mode Settings:"
+msgstr "Ustawienia trybu pływającego:"
+
+msgid "For inactive buttons:"
+msgstr "Dla nieaktywnych przycisków:"
+
+msgid "Grouping of tasks:"
+msgstr "Grupowanie zadań:"
+
+msgid "Hide backgrounds for inactive buttons"
+msgstr "Ukryj tła nieaktywnych przycisków"
+
+msgid "Hide 'Move to Desktop' if only one virtual desktop is used"
+msgstr "Ukryj 'Przenieś na pulpit', gdy używany jest tylko jeden pulpit wirtualny"
+
+msgid "Hide other windows when hovering over a window in the tooltip"
+msgstr "Ukryj inne okna po najechaniu na okno w podpowiedzi"
+
+msgid "Highlight active window in group"
+msgstr "Wyróżnij aktywne okno w grupie"
+
+msgid "Highlight new notifications"
+msgstr "Wyróżnij nowe powiadomienia"
+
+msgid "Hover style:"
+msgstr "Styl najechania:"
+
+msgid "Icon corner radius:"
+msgstr "Promień rogów ikony:"
+
+msgid "Icon hover effects"
+msgstr "Efekty najechania na ikonę"
+
+msgid "Icon Shape:"
+msgstr "Kształt ikony:"
+
+msgid "Icon size:"
+msgstr "Rozmiar ikony:"
+
+msgid "In any state"
+msgstr "W dowolnym stanie"
+
+msgid "Inner padding:"
+msgstr "Wewnętrzny odstęp:"
+
+msgid "Layout settings:"
+msgstr "Ustawienia układu:"
+
+msgid "Length:"
+msgstr "Długość:"
+
+msgid "Line"
+msgstr "Linia"
+
+msgid "Mark applications playing audio"
+msgstr "Oznaczaj aplikacje odtwarzające dźwięk"
+
+msgid "Maximum button width (px):"
+msgstr "Maksymalna szerokość przycisku (px):"
+
+msgid "Max segments:"
+msgstr "Maks. segmentów:"
+
+msgid "Media controls location:"
+msgstr "Położenie sterowania multimediami:"
+
+msgid "Number of browser history items:"
+msgstr "Liczba elementów historii przeglądarki:"
+
+msgid "Only minimized"
+msgstr "Tylko zminimalizowane"
+
+msgid "Only not minimized"
+msgstr "Tylko niezminimalizowane"
+
+msgid "On thumbnails (Overlay)"
+msgstr "Na miniaturach (nakładka)"
+
+msgid "Opacity:"
+msgstr "Przezroczystość:"
+
+msgid "Override indicator location"
+msgstr "Nadpisz położenie wskaźnika"
+
+msgid "Override system direction"
+msgstr "Nadpisz kierunek systemowy"
+
+msgid "Panel Settings:"
+msgstr "Ustawienia panelu:"
+
+msgid "Panel thickness (preview):"
+msgstr "Grubość panelu (podgląd):"
+
+msgid "Parabolic"
+msgstr "Paraboliczny"
+
+msgid "Place windows of one application side-by-side"
+msgstr "Układaj okna jednej aplikacji obok siebie"
+
+msgid "Plasma accent color"
+msgstr "Kolor akcentu Plasmy"
+
+msgid "Play removal animation"
+msgstr "Odtwórz animację usunięcia"
+
+msgid "Preview"
+msgstr "Podgląd"
+
+msgid "Progress:"
+msgstr "Postęp:"
+
+msgid "Progress color:"
+msgstr "Kolor postępu:"
+
+msgid "Relative"
+msgstr "Względny"
+
+msgid "Reset to default"
+msgstr "Przywróć domyślne"
+
+msgid "Resize indicators on activation/hover"
+msgstr "Zmieniaj rozmiar wskaźników przy aktywacji/najechaniu"
+
+msgid "Roundness:"
+msgstr "Zaokrąglenie:"
+
+msgid "Segment alignment:"
+msgstr "Wyrównanie segmentu:"
+
+msgid "Segment length:"
+msgstr "Długość segmentu:"
+
+msgid "Separate settings for group indicators"
+msgstr "Oddzielne ustawienia dla wskaźników grup"
+
+msgid "Separate settings for hovered indicators"
+msgstr "Oddzielne ustawienia dla wskaźników po najechaniu"
+
+msgid "Show '+' on overflow"
+msgstr "Pokaż '+' przy przepełnieniu"
+
+msgid "Show background under clipped icons"
+msgstr "Pokaż tło pod przyciętymi ikonami"
+
+msgid "Show badges"
+msgstr "Pokaż plakietki"
+
+msgid "Show badges on pinned application icons"
+msgstr "Pokaż plakietki na przypiętych ikonach aplikacji"
+
+msgid "Show browsing history in the context menu of web browsers (Experimental)"
+msgstr "Pokaż historię przeglądania w menu kontekstowym przeglądarek (eksperymentalne)"
+
+msgid "Show counters even when the application has no windows in the current view (e.g., minimized to tray or on another screen/desktop/activity)."
+msgstr "Pokazuj liczniki nawet gdy aplikacja nie ma okien w bieżącym widoku (np. zminimalizowana do zasobnika albo na innym ekranie/pulpicie/aktywności)."
+
+msgid "Show media controls"
+msgstr "Pokaż sterowanie multimediami"
+
+msgid "Show tooltips when hovering over task buttons"
+msgstr "Pokaż podpowiedzi po najechaniu na przyciski zadań"
+
+msgid "Show window thumbnails in tooltips"
+msgstr "Pokaż miniatury okien w podpowiedziach"
+
+msgid "Side padding:"
+msgstr "Boczny odstęp:"
+
+msgid "Simple"
+msgstr "Prosty"
+
+msgid "Sort tasks:"
+msgstr "Sortowanie zadań:"
+
+msgid "Standard group overlay"
+msgstr "Standardowa nakładka grupy"
+
+msgid "State"
+msgstr "Stan"
+
+msgid "Strip (Bottom)"
+msgstr "Pasek (dół)"
+
+msgid "Strip (Left)"
+msgstr "Pasek (lewo)"
+
+msgid "Strip (Right)"
+msgstr "Pasek (prawo)"
+
+msgid "Strip (Top)"
+msgstr "Pasek (góra)"
+
+msgid "Style:"
+msgstr "Styl:"
+
+msgid "These options are only available in icon-only mode."
+msgstr "Te opcje są dostępne tylko w trybie samych ikon."
+
+msgid "These options are only available when the widget is on a panel."
+msgstr "Te opcje są dostępne tylko, gdy widget jest na panelu."
+
+msgid "Thickness:"
+msgstr "Grubość:"
+
+msgid "This option is disabled when the widget is on a panel."
+msgstr "Ta opcja jest wyłączona, gdy widget jest na panelu."
+
+msgid "This setting only changes the appearance of this preview and does not affect your actual system panel."
+msgstr "To ustawienie zmienia tylko wygląd tego podglądu i nie wpływa na rzeczywisty panel systemowy."
+
+msgid "Under thumbnails"
+msgstr "Pod miniaturami"
+
+msgid "Unhide panel when a window wants attention"
+msgstr "Pokaż panel, gdy okno wymaga uwagi"
+
+msgid "Unpin app by dragging its icon off the panel"
+msgstr "Odepnij aplikację przeciągając jej ikonę poza panel"
+
+msgid "Window title"
+msgstr "Tytuł okna"
