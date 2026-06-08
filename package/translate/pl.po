@@ -807,6 +807,30 @@ msgid "Ostatnie:"
 msgstr "Ostatnie:"
 
 #: ../contents/ui/RecentItemsPopup.qml
+msgid "Akcje:"
+msgstr "Akcje:"
+
+#: ../contents/ui/RecentItemsPopup.qml
+msgid "Odepnij z paska zadań"
+msgstr "Odepnij z paska zadań"
+
+#: ../contents/ui/RecentItemsPopup.qml
+msgid "Przypnij do paska zadań"
+msgstr "Przypnij do paska zadań"
+
+#: ../contents/ui/RecentItemsPopup.qml
+msgid "Ustawienia Fancy TasksNG"
+msgstr "Ustawienia Fancy TasksNG"
+
+#: ../contents/ui/RecentItemsPopup.qml
+msgid "Pokaż ustawienia paska"
+msgstr "Pokaż ustawienia paska"
+
+#: ../contents/ui/RecentItemsPopup.qml
+msgid "Zakończ"
+msgstr "Zakończ"
+
+#: ../contents/ui/RecentItemsPopup.qml
 msgid "Więcej opcji…"
 msgstr "Więcej opcji…"
 

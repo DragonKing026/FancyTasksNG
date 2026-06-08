@@ -35,12 +35,19 @@ PlasmaCore.AppletPopup {
     property string launcherUrl: ""
     property string appName: ""
     required property Item   taskItem
+    property QtObject configureAction: null
+    property QtObject containmentConfigureAction: null
 
     property var  pendingArgs: null
     property bool pendingOpen:  false   // czekamy na async — po wyniku otwieramy popup
     property int  pendingLoadCount: 0
 
     signal moreOptionsRequested()
+
+    Component.onCompleted: {
+        configureAction = Plasmoid.internalAction("configure")
+        containmentConfigureAction = Plasmoid.containment ? Plasmoid.containment.internalAction("configure") : null
+    }
 
     visible:                false
     visualParent:           taskItem
@@ -311,6 +318,73 @@ PlasmaCore.AppletPopup {
         }
     }
 
+    component FooterActionRow: Item {
+        id: footerRow
+
+        required property string text
+        required property string icon
+        required property bool rowEnabled
+        required property bool shown
+        required property var action
+
+        visible: shown
+        enabled: footerRow.rowEnabled
+        implicitHeight: footerRowLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
+        implicitWidth: footerRowLayout.implicitWidth
+
+        HoverHandler { id: footerHover }
+
+        Rectangle {
+            anchors { fill: parent; margins: -1 }
+            color:   Kirigami.Theme.highlightColor
+            opacity: (footerHover.hovered && footerRow.rowEnabled) ? 0.15 : 0.0
+            radius:  3
+            z:       -1
+            Behavior on opacity { NumberAnimation { duration: 80 } }
+        }
+
+        TapHandler {
+            cursorShape: footerRow.rowEnabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+            onTapped: {
+                if (!footerRow.rowEnabled || !footerRow.action) {
+                    return
+                }
+                footerRow.action()
+                popup.close()
+            }
+        }
+
+        RowLayout {
+            id: footerRowLayout
+            anchors {
+                left:           parent.left
+                right:          parent.right
+                verticalCenter: parent.verticalCenter
+                leftMargin:     Kirigami.Units.smallSpacing
+                rightMargin:    Kirigami.Units.smallSpacing
+            }
+            spacing: Kirigami.Units.smallSpacing
+
+            Kirigami.Icon {
+                Layout.preferredWidth:  popup.icoSize
+                Layout.preferredHeight: popup.icoSize
+                Layout.alignment: Qt.AlignVCenter
+                source: footerRow.icon
+                opacity: footerRow.rowEnabled ? 1.0 : 0.45
+            }
+
+            PlasmaComponents3.Label {
+                Layout.fillWidth:  true
+                Layout.alignment:  Qt.AlignVCenter
+                text:              footerRow.text
+                elide:             Text.ElideRight
+                font.family:       Kirigami.Theme.smallFont.family
+                font.pointSize:    Kirigami.Theme.smallFont.pointSize
+                opacity:           footerRow.rowEnabled ? 1.0 : 0.6
+            }
+        }
+    }
+
     mainItem: Item {
         implicitWidth:  320
         implicitHeight: contentCol.implicitHeight
@@ -389,6 +463,62 @@ PlasmaCore.AppletPopup {
                 model: launchActionsModel
                 delegate: ActionRow {
                     Layout.fillWidth: true
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth:    true
+                Layout.topMargin:    Kirigami.Units.smallSpacing
+                Layout.bottomMargin: 1
+                height: 1
+                color: Kirigami.ColorUtils.linearInterpolation(
+                           Kirigami.Theme.backgroundColor,
+                           Kirigami.Theme.textColor, 0.15)
+            }
+
+            FooterActionRow {
+                Layout.fillWidth: true
+                text: popup.isPinnedToTaskManager()
+                      ? Wrappers.i18n("Odepnij z paska zadań")
+                      : Wrappers.i18n("Przypnij do paska zadań")
+                icon: popup.isPinnedToTaskManager() ? "window-unpin" : "window-pin"
+                shown: popup.pinActionVisible()
+                rowEnabled: popup.pinActionEnabled()
+                action: function() {
+                    popup.togglePinToTaskManager()
+                }
+            }
+
+            FooterActionRow {
+                Layout.fillWidth: true
+                text: Wrappers.i18n("Ustawienia Fancy TasksNG")
+                icon: popup.configureAction && popup.configureAction.icon ? popup.configureAction.icon : "configure"
+                shown: popup.configureAction && popup.configureAction.visible
+                rowEnabled: popup.configureAction && popup.configureAction.enabled
+                action: function() {
+                    popup.configureAction.trigger()
+                }
+            }
+
+            FooterActionRow {
+                Layout.fillWidth: true
+                text: Wrappers.i18n("Pokaż ustawienia paska")
+                icon: popup.containmentConfigureAction && popup.containmentConfigureAction.icon ? popup.containmentConfigureAction.icon : "configure"
+                shown: popup.containmentConfigureAction && popup.containmentConfigureAction.visible
+                rowEnabled: popup.containmentConfigureAction && popup.containmentConfigureAction.enabled
+                action: function() {
+                    popup.containmentConfigureAction.trigger()
+                }
+            }
+
+            FooterActionRow {
+                Layout.fillWidth: true
+                text: Wrappers.i18n("Zakończ")
+                icon: "window-close"
+                shown: popup.closeActionVisible()
+                rowEnabled: popup.closeActionEnabled()
+                action: function() {
+                    popup.requestCloseTask()
                 }
             }
 
@@ -604,5 +734,52 @@ PlasmaCore.AppletPopup {
         Plasmoid.configuration.pinnedRecentItems = newList
         doRefreshPinned()
         loadAppHistoryAsync()
+    }
+
+    function pinActionVisible() {
+        return taskItem && taskItem.model && !taskItem.model.IsStartup
+            && Plasmoid.immutability !== PlasmaCore.Types.SystemImmutable
+    }
+
+    function pinActionEnabled() {
+        return !!(taskItem && taskItem.model && taskItem.model.LauncherUrlWithoutIcon)
+    }
+
+    function isPinnedToTaskManager() {
+        if (!taskItem || !taskItem.model || !taskItem.model.LauncherUrlWithoutIcon) {
+            return false
+        }
+        var url = taskItem.model.LauncherUrlWithoutIcon.toString()
+        return Plasmoid.configuration.launchers.indexOf(url) !== -1
+    }
+
+    function togglePinToTaskManager() {
+        if (!taskItem || !taskItem.model || !taskItem.model.LauncherUrlWithoutIcon) {
+            return
+        }
+        var launchers = Plasmoid.configuration.launchers.slice()
+        var url = taskItem.model.LauncherUrlWithoutIcon.toString()
+        var idx = launchers.indexOf(url)
+        if (idx === -1) {
+            launchers.push(url)
+        } else {
+            launchers.splice(idx, 1)
+        }
+        Plasmoid.configuration.launchers = launchers
+    }
+
+    function closeActionVisible() {
+        return !!(taskItem && taskItem.model && !taskItem.model.IsLauncher && !taskItem.model.IsStartup)
+    }
+
+    function closeActionEnabled() {
+        return !!(taskItem && taskItem.model && taskItem.model.IsClosable)
+    }
+
+    function requestCloseTask() {
+        if (!taskItem || !taskItem.tasksRoot || !taskItem.tasksRoot.tasksModel || !taskItem.modelIndex) {
+            return
+        }
+        taskItem.tasksRoot.tasksModel.requestClose(taskItem.modelIndex())
     }
 }
