@@ -8,6 +8,7 @@ Usage:
 """
 
 import argparse
+import configparser
 import json
 import re
 import sys
@@ -146,6 +147,8 @@ def _list_actions(app_info):
     if not app_info:
         return actions
 
+    action_icons = _read_action_icons_from_desktop(app_info)
+
     try:
         ids = app_info.list_actions() or []
     except Exception:
@@ -162,10 +165,48 @@ def _list_actions(app_info):
             {
                 "id": action_id,
                 "text": action_name or action_id,
+                "icon": action_icons.get(action_id, ""),
             }
         )
 
     return actions
+
+
+def _read_action_icons_from_desktop(app_info):
+    """Return mapping action_id -> icon name/path from desktop file sections."""
+    icons = {}
+    if not app_info:
+        return icons
+
+    try:
+        desktop_path = app_info.get_filename()
+    except Exception:
+        desktop_path = None
+
+    if not desktop_path:
+        return icons
+
+    cp = configparser.RawConfigParser()
+    cp.optionxform = str
+    try:
+        cp.read(desktop_path, encoding="utf-8")
+    except Exception:
+        return icons
+
+    try:
+        action_ids = app_info.list_actions() or []
+    except Exception:
+        action_ids = []
+
+    for action_id in action_ids:
+        section = f"Desktop Action {action_id}"
+        if not cp.has_section(section):
+            continue
+        icon = cp.get(section, "Icon", fallback="")
+        if icon:
+            icons[action_id] = icon
+
+    return icons
 
 
 def _run_action(gio, app_info, action_id):

@@ -124,7 +124,8 @@ PlasmaCore.AppletPopup {
                     if (!e || !e.id) continue
                     launchActionsModel.append({
                         actionId: e.id,
-                        text: e.text || e.id
+                        text: e.text || e.id,
+                        icon: e.icon || ""
                     })
                 }
             } catch(err) {
@@ -255,6 +256,7 @@ PlasmaCore.AppletPopup {
 
         required property string actionId
         required property string text
+        required property string icon
 
         implicitHeight: actionRowLayout.implicitHeight + Kirigami.Units.smallSpacing * 2
         implicitWidth:  actionRowLayout.implicitWidth
@@ -293,7 +295,7 @@ PlasmaCore.AppletPopup {
                 Layout.preferredWidth:  popup.icoSize
                 Layout.preferredHeight: popup.icoSize
                 Layout.alignment: Qt.AlignVCenter
-                source: "system-run"
+                source: actionRow.icon && actionRow.icon !== "" ? actionRow.icon : "system-run"
             }
 
             PlasmaComponents3.Label {
