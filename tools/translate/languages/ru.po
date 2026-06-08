@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Fancy Tasks\n"
 "Report-Msgid-Bugs-To: https://github.com/daydve/FancyTasksNG\n"
-"POT-Creation-Date: 2026-06-06 17:57+0300\n"
+"POT-Creation-Date: 2026-06-08 17:52+0200\n"
 "PO-Revision-Date: 2025-12-22 13:00+0300\n"
 "Last-Translator: Vitaliy Elin <daydve@smbit/.pro>\n"
 "Language-Team: Russian\n"
@@ -514,6 +514,10 @@ msgstr "Слева"
 msgid "On the top"
 msgstr "Сверху"
 
+#: package/contents/config/ConfigBehavior.qml
+msgid "Show recent items popup on right-click"
+msgstr ""
+
 #: package/contents/config/ConfigIndicators.qml
 msgid "Active application indicators:"
 msgstr "Индикаторы запущенных приложений:"
@@ -993,6 +997,50 @@ msgstr "&Закрыть все"
 #: package/contents/ui/ContextMenu.qml
 msgid "&Close"
 msgstr "&Закрыть"
+
+#: package/contents/ui/RecentItemsPopup.qml package/contents/ui/RecentItemsSection.qml
+msgid "Usuń z ulubionych"
+msgstr ""
+
+#: package/contents/ui/RecentItemsPopup.qml package/contents/ui/RecentItemsSection.qml
+msgid "Dodaj do ulubionych"
+msgstr ""
+
+#: package/contents/ui/RecentItemsPopup.qml package/contents/ui/RecentItemsSection.qml
+msgid "Ulubione:"
+msgstr ""
+
+#: package/contents/ui/RecentItemsPopup.qml package/contents/ui/RecentItemsSection.qml
+msgid "Ostatnie:"
+msgstr ""
+
+#: package/contents/ui/RecentItemsPopup.qml
+msgid "Akcje:"
+msgstr ""
+
+#: package/contents/ui/RecentItemsPopup.qml
+msgid "Odepnij z paska zadań"
+msgstr ""
+
+#: package/contents/ui/RecentItemsPopup.qml
+msgid "Przypnij do paska zadań"
+msgstr ""
+
+#: package/contents/ui/RecentItemsPopup.qml
+msgid "Ustawienia Fancy TasksNG"
+msgstr ""
+
+#: package/contents/ui/RecentItemsPopup.qml
+msgid "Pokaż ustawienia paska"
+msgstr ""
+
+#: package/contents/ui/RecentItemsPopup.qml
+msgid "Zakończ"
+msgstr ""
+
+#: package/contents/ui/RecentItemsPopup.qml
+msgid "Więcej opcji…"
+msgstr ""
 
 #: package/contents/ui/Task.qml
 msgctxt "@info:usagetip %1 application name"

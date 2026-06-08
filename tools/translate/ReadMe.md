@@ -1,3 +1,9 @@
+---
+noteId: "0115ccb0635211f1adec091170175ddd"
+tags: []
+
+---
+
 # Translations
 
 Translations are generated within the repository and automatically bundled into the compiled `*.plasmoid` package.
@@ -26,8 +32,8 @@ Everything is managed via `make` from the **root directory of the project**:
 ## Status
 | Locale   | Lines   | % Done |
 |----------|---------|--------|
-| Template | 252     |        |
-| nl       | 60/252  | 23%    |
-| pt_BR    | 63/252  | 25%    |
-| ru       | 252/252 | 100%   |
-| zh_CN    | 60/252  | 23%    |
+| Template | 264     |        |
+| nl       | 0/264   | 0%     |
+| pt_BR    | 0/264   | 0%     |
+| ru       | 0/264   | 0%     |
+| zh_CN    | 0/264   | 0%     |
