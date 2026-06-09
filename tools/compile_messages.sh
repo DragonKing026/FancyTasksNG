@@ -31,12 +31,26 @@ log_info "Compiling messages for ${projectName}"
 
 rm -rf "${PACKAGE_DIR}/contents/locale"
 
-# Use || true to prevent set -e from killing the script if no po files found
-catalogs=$(find languages -name '*.po' | sort || true)
-if [ -n "$catalogs" ]; then
-    for cat in $catalogs; do
-        log_info "$cat"
-        catLocale=$(basename "${cat%.*}")
+declare -A locale_catalogs
+
+# Merge catalogs from tools/translate/languages and package/translate.
+# Prefer the first catalog seen for each locale to keep builds deterministic.
+while IFS= read -r -d '' cat; do
+    catLocale=$(basename "${cat%.*}")
+    if [ -n "${locale_catalogs[$catLocale]-}" ]; then
+        log_info "Skipping duplicate locale '${catLocale}' from '${cat}' (using '${locale_catalogs[$catLocale]}')."
+        continue
+    fi
+    locale_catalogs[$catLocale]="$cat"
+done < <(find "${TRANSLATE_DIR}/languages" "${PACKAGE_DIR}/translate" -type f -name '*.po' -print0 2>/dev/null || true)
+
+if [ "${#locale_catalogs[@]}" -gt 0 ]; then
+    mapfile -t sorted_locales < <(printf '%s\n' "${!locale_catalogs[@]}" | sort)
+
+    for catLocale in "${sorted_locales[@]}"; do
+        cat="${locale_catalogs[$catLocale]}"
+
+        log_info "${cat}"
         msgfmt -o "${catLocale}.mo" "$cat"
 
         installPath="${PACKAGE_DIR}/contents/locale/${catLocale}/LC_MESSAGES/${projectName}.mo"
